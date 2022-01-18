@@ -11,7 +11,7 @@ def get_args():
 	p = ArgumentParser()
 
 	p.add_argument('s_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for s-phase cells')
-	p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for s-phase cells')
+	p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for g1-phase cells')
 	p.add_argument('output', help='same as s_phase_cells input but with new column for copy_norm')
 	p.add_argument('input_col', help='column to use for normalization')
 	p.add_argument('s_prob_col', help='column that represents S-phase probability')

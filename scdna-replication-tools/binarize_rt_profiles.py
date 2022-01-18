@@ -19,7 +19,8 @@ def get_args():
     return p.parse_args()
 
 
-def binarize_profiles(cn, column, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
+def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', thresh_col='binary_thresh',
+                        MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
     '''
     Use normalized read depth profiles to compute binary replication timing profiles for each cell.
     This binarization process is an implementation of what is described in Dileep & Gilbert, Nature Comms (2018).
@@ -27,7 +28,13 @@ def binarize_profiles(cn, column, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, 
     Args:
         cn: long-form data frame of all S-phase cells profile with rows are segments & cells,
             columns include cell_id, clone_id, chr, start, end, reads, copy, etc
-        column: column in cn to be used for binarization
+        input_col: column in cn to be used for binarization
+        rs_col: column for the desired binary replication state
+        frac_rt_col: column that represents the fraction of replicated bins for each cell
+        thresh_col: column that represnents the binary threshold selected for each cell
+        MEAN_GAP_THRESH: threshold in which means are manually picked for cases where GMM means are too close
+        EARLY_S_SKEW_THRESH: threshold for determining early-S when below MEAN_GAP_THRESH
+        LATE_S_SKEW_THRESH: threshold for determining late-S when below MEAN_GAP_THRESH
     Returns:
         cn: same as input cn with new columns added to reflect each bin's replication state (rt_state)
             as well as each cell's fraction of replicated bins (frac_rt) and chosen threshold (binary_thresh)
@@ -36,7 +43,7 @@ def binarize_profiles(cn, column, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, 
     manhattan_df = []
     for cell_id, cell_cn in cn.groupby('cell_id'):
         # run GMM
-        X = cell_cn[column].values.reshape(-1, 1)
+        X = cell_cn[input_col].values.reshape(-1, 1)
         gm = GaussianMixture(n_components=2, random_state=0)
         states = gm.fit_predict(X)
 
@@ -51,7 +58,7 @@ def binarize_profiles(cn, column, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, 
         # use GMM means to assign binary values for thresholding
         mean_0 = gm.means_[0][0]
         mean_1 = gm.means_[1][0]
-        X = cell_cn[column].values
+        X = cell_cn[input_col].values
 
         # find the distance between the two means for each state
         mean_gap = abs(mean_0 - mean_1)
@@ -103,9 +110,9 @@ def binarize_profiles(cn, column, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, 
         # compute fraction of replicated bins (cell's time within s-phase)
         frac_rt = sum(cell_rt) / len(cell_rt)
 
-        cn.loc[cell_cn.index, 'rt_state'] = cell_rt
-        cn.loc[cell_cn.index, 'frac_rt'] = frac_rt
-        cn.loc[cell_cn.index, 'binary_thresh'] = best_t
+        cn.loc[cell_cn.index, rs_col] = cell_rt
+        cn.loc[cell_cn.index, frac_rt_col] = frac_rt
+        cn.loc[cell_cn.index, thresh_col] = best_t
 
     manhattan_df = pd.concat(manhattan_df)
 
