@@ -7,7 +7,7 @@ from normalize_by_cell import normalize_by_cell
 from binarize_profiles import binarize_profiles
 from compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
-from scgenome.cncluster import kmeans_cluster
+from cncluster import kmeans_cluster
 from argparse import ArgumentParser
 
 
