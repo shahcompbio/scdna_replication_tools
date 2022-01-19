@@ -14,12 +14,12 @@ def get_args():
     return p.parse_args()
 
 
-def filter_ploidies(cn):
+def filter_ploidies(cn, clone_col='clone_id'):
     """ Only use cells from the majority ploidy of each clone. """
-    ploidy_counts = cn.groupby(['clone_id', 'ploidy']).size()
+    ploidy_counts = cn.groupby([clone_col, 'ploidy']).size()
 
     pieces = []
-    for clone_id, group in cn.groupby('clone_id'):
+    for clone_id, group in cn.groupby(clone_col):
         keep_ploidy = group.groupby('ploidy').size().idxmax()
 
         pieces.append(group[group['ploidy'] == keep_ploidy].copy())
@@ -39,20 +39,21 @@ def add_cell_ploidies(cn):
     return cn
 
 
-def compute_consensus_clone_profiles(cn, col_name, aggfunc=np.median):
+def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', aggfunc=np.median):
     '''
     Compute consensus copy number profiles for a given set of G1-phase cells
 
     Args:
         cn: long-form data frame of all G1/2-phase cell profiles; rows are segments & cells, columns are cell_id, clone_id, chr, start, end, reads, copy, etc
         col_name: column (i.e. reads, copy, state) to use for computing the consensus profile
+        clone_col: column containing the clone IDs
         aggfunc: function for aggregating (median by default)
     Returns:
         data frame of consensus clone profiles with columns as clone ids, rows as segments, values match col_name
     '''
 
     # removing any clone belonging to None
-    cn = cn[cn['clone_id'] != 'None']
+    cn = cn[cn[clone_col] != 'None']
 
     coord_cols = ['chr', 'start', 'end']
     bin_idx = cn.set_index(coord_cols).index
@@ -65,11 +66,11 @@ def compute_consensus_clone_profiles(cn, col_name, aggfunc=np.median):
 
     # remove cells from certain clones that don't belong to the majority ploidy
     # i.e. remove tetraploid cells if clone is 90% diploid
-    cn = filter_ploidies(cn)
+    cn = filter_ploidies(cn, clone_col=clone_col)
 
-    # pivot long-form df to matrix and aggregate by clone_id
+    # pivot long-form df to matrix and aggregate by clone_col
     clone_profiles = cn.pivot_table(
-        index=coord_cols, columns='clone_id', values=col_name, aggfunc=aggfunc
+        index=coord_cols, columns=clone_col, values=col_name, aggfunc=aggfunc
     )
 
     return clone_profiles

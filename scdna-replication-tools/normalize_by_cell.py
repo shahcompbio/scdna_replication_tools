@@ -216,7 +216,7 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_
 	return temp_merged_cn
 
 
-def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_phase_prob',
+def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_phase_prob', clone_col='clone_id',
 					temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
 	# drop loci with nans
 	cn_s.dropna(inplace=True)
@@ -231,9 +231,9 @@ def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_pha
 	for cell_id, cell_cn in cn_s.groupby('cell_id'):
 		temp_cell_cn = cell_cn.copy()
 
-		if 'clone_id' in cn_g1.columns and 'clone_id' in cn_s.columns:
-			clone_id = temp_cell_cn.clone_id.values[0]
-			clone_cn_g1 = cn_g1.loc[cn_g1['clone_id']==clone_id]
+		if clone_col in cn_g1.columns and clone_col in cn_s.columns:
+			clone_id = temp_cell_cn[clone_col].values[0]
+			clone_cn_g1 = cn_g1.loc[cn_g1[clone_col]==clone_id]
 		else:
 			clone_cn_g1 = cn_g1
 		temp_cell_cn = temp_cell_cn[['chr', 'start', 'end', 'cell_id', 'copy', 'reads', 'rpm_gc_norm', 'quality', 'state', 'ploidy', 'multiplier']]

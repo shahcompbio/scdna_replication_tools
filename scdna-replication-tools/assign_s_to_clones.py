@@ -46,7 +46,7 @@ def clone_correlations(clone_df, cell_cn, col_name='reads'):
 	return pd.DataFrame(clone_corrs)
 
 
-def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads'):
+def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clone_id'):
 	'''
 	Find the clone that belongs to each S-phase cell
 
@@ -73,7 +73,7 @@ def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads'):
 		temp_idx = copy_corrs.iloc[0].argmax()
 		best_clone = clone_reads.columns[temp_idx]
 
-		s_phase_cells.loc[cell_cn.index, 'clone_id'] = best_clone
+		s_phase_cells.loc[cell_cn.index, clone_col] = best_clone
 
 	return s_phase_cells
 

@@ -7,6 +7,7 @@ from normalize_by_cell import normalize_by_cell
 from binarize_profiles import binarize_profiles
 from compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
+from scgenome.cncluster import kmeans_cluster
 
 
 def get_args():
@@ -56,17 +57,23 @@ class scRT:
 
 
 	def infer(self):
+		# run clustering if no clones are included in G1 input
+		if self.clone_col is None:
+			clusters = kmeans_cluster(self.cn_g1)
+			self.cn_g1 = pd.merge(self.cn_g1, clusters, on='cell_id')
+			self.clone_col = 'cluster_id'
+
 		# compute conesensus clone profiles
-		self.clone_profiles = compute_consensus_clone_profiles(self.cn_g1, self.input_col)
+		self.clone_profiles = compute_consensus_clone_profiles(self.cn_g1, self.input_col, clone_col=self.clone_col)
 
 		# assign S-phase cells to clones
-		self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col)
+		self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col, clone_col=self.clone_col)
 
 		# GC correction
 		self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
 
 		# normalize by cell
-		self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, s_prob_col=self.s_prob_col,
+		self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, s_prob_col=self.s_prob_col, clone_col=self.clone_col,
 										temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
 		# binarize
