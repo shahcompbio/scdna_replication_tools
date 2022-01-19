@@ -8,6 +8,7 @@ from binarize_profiles import binarize_profiles
 from compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
 from scgenome.cncluster import kmeans_cluster
+from argparse import ArgumentParser
 
 
 def get_args():
@@ -16,7 +17,6 @@ def get_args():
 	p.add_argument('s_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for s-phase cells')
 	p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for g1-phase cells')
 	p.add_argument('output', help='same as s_phase_cells input but with inferred scRT info added')
-
 
 
 class scRT:
