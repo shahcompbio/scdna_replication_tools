@@ -1,5 +1,5 @@
 import umap
-# import hdbscan
+import hdbscan
 import logging
 import pandas as pd
 import numpy as np
@@ -7,43 +7,43 @@ import sklearn.cluster
 import scipy.spatial
 
 
-# def umap_hdbscan_cluster(
-#         cn,
-#         n_components=2,
-#         n_neighbors=15,
-#         min_dist=0.1,
-#     ):
-#     """ Cluster using umap and hdbscan.
-#     Args:
-#         cn: data frame columns as cell ids, rows as segments
-#     Returns:
-#         data frame with columns:
-#             cluster_id
-#             cell_id
-#             umap1
-#             umap2
-#     """
-#     embedding = umap.UMAP(
-#         n_neighbors=n_neighbors,
-#         min_dist=min_dist,
-#         n_components=n_components,
-#         random_state=42,
-#         metric='euclidean',
-#     ).fit_transform(cn.fillna(0).values.T)
+def umap_hdbscan_cluster(
+        cn,
+        n_components=2,
+        n_neighbors=15,
+        min_dist=0.1,
+    ):
+    """ Cluster using umap and hdbscan.
+    Args:
+        cn: data frame columns as cell ids, rows as segments
+    Returns:
+        data frame with columns:
+            cluster_id
+            cell_id
+            umap1
+            umap2
+    """
+    embedding = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        n_components=n_components,
+        random_state=42,
+        metric='euclidean',
+    ).fit_transform(cn.fillna(0).values.T)
 
-#     clusters = hdbscan.HDBSCAN(
-#         min_samples=10,
-#         min_cluster_size=30,
-#     ).fit_predict(embedding)
+    clusters = hdbscan.HDBSCAN(
+        min_samples=10,
+        min_cluster_size=30,
+    ).fit_predict(embedding)
 
-#     df = pd.DataFrame({
-#         'cell_id': cn.columns, 'cluster_id': clusters,
-#         'umap1': embedding[:, 0], 'umap2': embedding[:, 1]
-#     })
-#     df = df[['cell_id', 'cluster_id', 'umap1', 'umap2']]
-#     df = df.dropna()
+    df = pd.DataFrame({
+        'cell_id': cn.columns, 'cluster_id': clusters,
+        'umap1': embedding[:, 0], 'umap2': embedding[:, 1]
+    })
+    df = df[['cell_id', 'cluster_id', 'umap1', 'umap2']]
+    df = df.dropna()
 
-#     return df
+    return df
 
 
 def compute_bic(kmeans, X):
