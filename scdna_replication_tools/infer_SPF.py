@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-from compute_consensus_clone_profiles import compute_consensus_clone_profiles
-from assign_s_to_clones import assign_s_to_clones
-from cncluster import kmeans_cluster
+from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles
+from scdna_replication_tools.assign_s_to_clones import assign_s_to_clones
+from scdna_replication_tools.cncluster import kmeans_cluster
 from argparse import ArgumentParser
 
 

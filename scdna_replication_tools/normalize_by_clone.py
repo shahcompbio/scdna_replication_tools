@@ -4,8 +4,8 @@ import numpy as np
 import ruptures as rpt
 from sklearn import preprocessing
 from scipy.stats import mode, ttest_ind
-from compute_consensus_clone_profiles import add_cell_ploidies
-from normalize_by_cell import remove_cell_specific_CNAs
+from scdna_replication_tools.compute_consensus_clone_profiles import add_cell_ploidies
+from scdna_replication_tools.normalize_by_cell import remove_cell_specific_CNAs
 
 
 def get_args():
