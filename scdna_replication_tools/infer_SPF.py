@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 def get_args():
 	p = ArgumentParser()
 
-	p.add_argument('s_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for s-phase cells')
+	p.add_argument('s_phase_cells', help='copynumber tsv file with state, copy, etc for s-phase cells')
 	p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for g1-phase cells')
 	p.add_argument('output_s', help='same as s_phase_cells input but clone assignments added')
 	p.add_argument('output_spf', help='table of S-phase fractions (with stdev) for each clone')

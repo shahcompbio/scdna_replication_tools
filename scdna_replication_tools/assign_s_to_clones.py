@@ -59,9 +59,10 @@ def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clo
 	'''
 	s_phase_cells['chr'] = s_phase_cells['chr'].astype(str)
 
-	# ensure that clone indices are loci
+	# ensure that clone indices are loci and not extra columns
 	clone_idx = ['chr', 'start', 'end']
-	clone_df.set_index(clone_idx, inplace=True)
+	if set(clone_idx).issubset(set(clone_df.columns)):
+		clone_df.set_index(clone_idx, inplace=True)
 
 	# find clone for every S-phase cell
 	for cell_id, cell_cn in s_phase_cells.groupby('cell_id'):
