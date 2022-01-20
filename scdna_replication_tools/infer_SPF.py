@@ -101,8 +101,8 @@ class SPF:
 			s_frac_std[clone_id] = std
 
 		# combine all info into one output_df
-		frac_df = pd.DataFrame.from_dict(s_fracs, orient='index', columns=['frac']).reset_index()
-		std_df = pd.DataFrame.from_dict(s_frac_std, orient='index', columns=['frac_std']).reset_index()
+		frac_df = pd.DataFrame.from_dict(s_fracs, orient='index', columns=['SPF']).reset_index()
+		std_df = pd.DataFrame.from_dict(s_frac_std, orient='index', columns=['SPF_std']).reset_index()
 		s_count_df = pd.DataFrame.from_dict(s_counts, orient='index', columns=['num_s']).reset_index()
 		non_s_count_df = pd.DataFrame.from_dict(non_s_counts, orient='index', columns=['num_g']).reset_index()
 		output_df = frac_df.merge(std_df).merge(s_count_df).merge(non_s_count_df)
