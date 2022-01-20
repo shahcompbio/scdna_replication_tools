@@ -70,9 +70,9 @@ def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clo
 		temp_cell_cn = cell_cn.set_index(clone_idx).copy()
 
 		# find best clone_id using read profiles
-		copy_corrs = clone_correlations(clone_reads, temp_cell_cn, col_name)
+		copy_corrs = clone_correlations(clone_df, temp_cell_cn, col_name)
 		temp_idx = copy_corrs.iloc[0].argmax()
-		best_clone = clone_reads.columns[temp_idx]
+		best_clone = clone_df.columns[temp_idx]
 
 		s_phase_cells.loc[cell_cn.index, clone_col] = best_clone
 
