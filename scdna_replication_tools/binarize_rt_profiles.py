@@ -102,7 +102,7 @@ def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', t
 
         # save table of threshs vs manhattan distance for this cell
         temp_manhattan_df = pd.DataFrame({'thresh': threshs, 'manhattan_dist': manhattan_dists, 
-        								'cell_id': [cell_id]*100, 'best_thresh': [best_t]*100})
+                                        'cell_id': [cell_id]*100, 'best_thresh': [best_t]*100})
         manhattan_df.append(temp_manhattan_df)
 
         # compute binary RT values based on the best threshold
@@ -120,15 +120,15 @@ def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', t
 
 
 def main():
-	argv = get_args()
-	cn = pd.read_csv(argv.input, sep='\t', dtype={'chr': str})
+    argv = get_args()
+    cn = pd.read_csv(argv.input, sep='\t', dtype={'chr': str})
 
-	cn, manhattan_df = binarize_profiles(cn, argv.column)
+    cn, manhattan_df = binarize_profiles(cn, argv.column)
 
-	cn.to_csv(argv.output, sep='\t', index=False)
-	manhattan_df.to_csv(argv.thresh_dists, sep='\t', index=False)
+    cn.to_csv(argv.output, sep='\t', index=False)
+    manhattan_df.to_csv(argv.thresh_dists, sep='\t', index=False)
 
 
 
 if __name__ == '__main__':
-	main()
+    main()
