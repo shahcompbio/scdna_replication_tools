@@ -115,7 +115,7 @@ def calc_linear_t_width(popt, low=0.25, high=0.75):
 
 # superimpose T-width lines onto sigmoid function & data
 def plot_cell_variability(xdata, ydata, popt=None, left_time=None, right_time=None, t_width=None,
-                            alpha=1, title='Cell-to-cell variabilty', curve='sigmoid', ax=None):
+                          alpha=1, title='Cell-to-cell variabilty', curve='sigmoid', ax=None):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 6))
 
@@ -152,7 +152,7 @@ def calculate_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', pe
         curve: type of curve to fit data to ('sigmoid' or 'linear')
     Returns:
         t_width: width of time from scheduled replication window that ranges from bins that are 25% to 75% replicated;
-                large values indicate high cell-to-cell heterogeneity in replication timing
+                 large values indicate high cell-to-cell heterogeneity in replication timing
         right_time: time from scheduled replication value in which bins are 25% replicated
         left_time: time from scheduled replication value in which bins are 75% replicated
         popt: list of parameters optimized during curve fitting
@@ -192,8 +192,8 @@ def compute_and_plot_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_sta
     '''
     calculate_twidth(cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, curve=curve)
     ax = plot_cell_variability(time_bins, pct_reps, popt,
-                                left_time, right_time, t_width,
-                                alpha=alpha, title=title, curve=curve, ax=ax)
+                               left_time, right_time, t_width,
+                               alpha=alpha, title=title, curve=curve, ax=ax)
 
     return ax, t_width
 
@@ -210,7 +210,7 @@ def main():
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     ax, t_width = compute_and_plot_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col=argv.rs_col, per_cell=False, query2=None,
-                                        alpha=1, title='Cell-to-cell variabilty', curve=argv.curve, ax=ax)
+                                          alpha=1, title='Cell-to-cell variabilty', curve=argv.curve, ax=ax)
     
     fig.savefig(argv.output, bbox_inches='tight')
 

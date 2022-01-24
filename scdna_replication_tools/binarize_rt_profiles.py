@@ -101,8 +101,10 @@ def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', t
                 best_t = t
 
         # save table of threshs vs manhattan distance for this cell
-        temp_manhattan_df = pd.DataFrame({'thresh': threshs, 'manhattan_dist': manhattan_dists, 
-                                        'cell_id': [cell_id]*100, 'best_thresh': [best_t]*100})
+        temp_manhattan_df = pd.DataFrame({
+            'thresh': threshs, 'manhattan_dist': manhattan_dists, 
+            'cell_id': [cell_id]*100, 'best_thresh': [best_t]*100
+        })
         manhattan_df.append(temp_manhattan_df)
 
         # compute binary RT values based on the best threshold

@@ -165,9 +165,11 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm', s_p
 
         # compute pearson correlation
         r, pval = pearsonr(temp_merged_cn[s_col].values, temp_merged_cn[g1_col].values)
-        temp_df = pd.DataFrame({'s_cell_id': [s_cell_id], 'g1_cell_id': [g1_cell_id],
-                                'pearson_r': [r], 'pearson_pval': [pval],
-                                'is_s_phase_prob': [g1_cell_cn[s_prob_col].values[0]]})
+        temp_df = pd.DataFrame({
+            's_cell_id': [s_cell_id], 'g1_cell_id': [g1_cell_id],
+            'pearson_r': [r], 'pearson_pval': [pval],
+            'is_s_phase_prob': [g1_cell_cn[s_prob_col].values[0]]
+        })
         cell_corrs.append(temp_df)
 
     cell_corrs = pd.concat(cell_corrs)
@@ -206,7 +208,7 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_
 
     # input column of S-phase cell is normalized by the state of the G1-phase cell
     temp_merged_cn[output_col] = (temp_merged_cn[s_col] * temp_merged_cn['multiplier_g1']) / \
-                                ((temp_merged_cn['state_g1'] * temp_merged_cn['multiplier_s']) + np.finfo(float).eps)
+                                 ((temp_merged_cn['state_g1'] * temp_merged_cn['multiplier_s']) + np.finfo(float).eps)
 
     # center and scale all values for this cell
     temp_merged_cn['output_col'] = preprocessing.scale(temp_merged_cn[output_col].values)
@@ -217,7 +219,7 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_
 
 
 def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_phase_prob', clone_col='clone_id',
-                    temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
+                      temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
     # drop loci with nans
     cn_s.dropna(inplace=True)
     cn_g1.dropna(inplace=True)
@@ -280,7 +282,7 @@ def main():
     # cn_g1 = cn_g1[cn_g1['chr'] != 'Y']
 
     output_df = normalize_by_cell(cn_s, cn_g1, input_col=argv.input_col, s_prob_col=argv.s_prob_col,
-                                temp_col=argv.temp_col, output_col=argv.output_col, seg_col=argv.seg_col)
+                                  temp_col=argv.temp_col, output_col=argv.output_col, seg_col=argv.seg_col)
 
 
     output_df.to_csv(argv.output, sep='\t', index=False)

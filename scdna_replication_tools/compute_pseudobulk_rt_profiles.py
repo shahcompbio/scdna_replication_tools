@@ -21,9 +21,11 @@ def calc_population_rt(cn, input_col, output_col, time_col='rt_hours'):
         mapp = loci_cn.map.values[0]
         averagee = np.mean(loci_cn[input_col].values)
 
-        temp_df = pd.DataFrame({'chr': [chrom], 'start': [start], 'end': [end],
-                                'width': [width], output_col: [averagee],
-                                'gc': [gc], 'map': [mapp]})
+        temp_df = pd.DataFrame({
+            'chr': [chrom], 'start': [start], 'end': [end],
+            'width': [width], output_col: [averagee],
+            'gc': [gc], 'map': [mapp]
+        })
         pop_cn.append(temp_df)
 
     pop_cn = pd.concat(pop_cn)

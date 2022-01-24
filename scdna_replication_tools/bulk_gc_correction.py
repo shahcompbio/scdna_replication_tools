@@ -37,7 +37,7 @@ def bulk_g1_gc_correction(cn_s, cn_g1, input_col='reads', output_col='rpm_gc_nor
 
     Args:
         cn_s: long-form data frame of all S-phase cells profile with rows are segments & cells,
-                columns are cell_id, chr, start, end, reads, copy, etc
+              columns are cell_id, chr, start, end, reads, copy, etc
         cn_g1: same as cn_g1 except for G1/2-phase cells
         input_col: reads column to use for GC correction (default: 'reads')
         output_col: column used to store GC-corrected reads (default: 'rpm_gc_norm')

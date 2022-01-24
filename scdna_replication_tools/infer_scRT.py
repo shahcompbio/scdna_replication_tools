@@ -21,8 +21,8 @@ def get_args():
 
 class scRT:
     def __init__(self, cn_s, cn_g1, input_col='reads', s_prob_col='is_s_phase_prob', 
-                rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
-                col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
+                 rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
+                 col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -74,11 +74,11 @@ class scRT:
 
         # normalize by cell
         self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, s_prob_col=self.s_prob_col, clone_col=self.clone_col,
-                                        temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
+                                      temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
         # binarize
         self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
-                                        MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
 
         return self.cn_s
 
