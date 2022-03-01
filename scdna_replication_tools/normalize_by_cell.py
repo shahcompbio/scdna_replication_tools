@@ -14,7 +14,6 @@ def get_args():
     p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for g1-phase cells')
     p.add_argument('output', help='same as s_phase_cells input but with new column for copy_norm')
     p.add_argument('input_col', help='column to use for normalization')
-    p.add_argument('s_prob_col', help='column that represents S-phase probability')
     p.add_argument('temp_col', help='prefix for intermediate column names when going from input to output')
     p.add_argument('output_col', help='desired output column representing continuous replication timing values')
     p.add_argument('seg_col', help='column representing cell-specific segmentation after G1 normalization')
@@ -145,7 +144,7 @@ def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_val
     return cell_cn
 
 
-def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm', s_prob_col='is_s_phase_prob'):
+def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm'):
     s_col = '{}_s'.format(col)
     g1_col = '{}_g1'.format(col)
     
@@ -156,7 +155,7 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm', s_p
     cell_corrs = []
     for g1_cell_id, g1_cell_cn in clone_cn_g1.groupby('cell_id'):
         # rename columns that appear in both cns
-        g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', col, s_prob_col]]
+        g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', col]]
         g1_cell_cn[g1_col] = g1_cell_cn[col]
         g1_cell_cn.drop(columns=[col], inplace=True)
 
@@ -168,7 +167,6 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm', s_p
         temp_df = pd.DataFrame({
             's_cell_id': [s_cell_id], 'g1_cell_id': [g1_cell_id],
             'pearson_r': [r], 'pearson_pval': [pval],
-            'is_s_phase_prob': [g1_cell_cn[s_prob_col].values[0]]
         })
         cell_corrs.append(temp_df)
 
@@ -180,13 +178,13 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm', s_p
     return cell_corrs
 
 
-def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_s_phase_prob', output_col='state_norm'):
+def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', output_col='state_norm'):
     ''' Normalize the S-phase cell by the G1-phase cell '''
     s_col = '{}_s'.format(input_col)
     g1_col = '{}_g1'.format(input_col)
 
     # change column names for G1-phase cells (S-phase columns already changed)
-    g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', input_col, s_prob_col, 'state', 'ploidy']]
+    g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', input_col, 'state', 'ploidy']]
     g1_cell_cn['ploidy_g1'] = g1_cell_cn['ploidy']
     g1_cell_cn[g1_col] = g1_cell_cn[input_col]
     g1_cell_cn['state_g1'] = g1_cell_cn['state']
@@ -212,7 +210,7 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_
     return temp_merged_cn
 
 
-def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_phase_prob', clone_col='clone_id',
+def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', clone_col='clone_id',
                       temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
     # drop loci with nans
     cn_s.dropna(inplace=True)
@@ -235,14 +233,14 @@ def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_pha
         temp_cell_cn = temp_cell_cn[['chr', 'start', 'end', 'cell_id', input_col, 'state', 'ploidy']]
         
         # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
-        cell_corrs = compute_cell_corrs(temp_cell_cn, clone_cn_g1, cell_id, col=input_col, s_prob_col=s_prob_col)
+        cell_corrs = compute_cell_corrs(temp_cell_cn, clone_cn_g1, cell_id, col=input_col)
         
         # get data from the G1 cell that matches best
         g1_cell_id = cell_corrs.iloc[0].g1_cell_id
         g1_cell_cn = clone_cn_g1.loc[clone_cn_g1['cell_id']==g1_cell_id]
 
         # normalise S-phase cell by the G1-phase cell
-        temp_merged_cn = g1_cell_norm(temp_cell_cn, g1_cell_cn, input_col=input_col, s_prob_col=s_prob_col, output_col=temp_col)
+        temp_merged_cn = g1_cell_norm(temp_cell_cn, g1_cell_cn, input_col=input_col, output_col=temp_col)
 
         # add some info from G1-phase cell for posterity
         temp_merged_cn['G1_match_cell_id'] = g1_cell_id
@@ -275,7 +273,7 @@ def main():
     # cn_s = cn_s[cn_s['chr'] != 'Y']
     # cn_g1 = cn_g1[cn_g1['chr'] != 'Y']
 
-    output_df = normalize_by_cell(cn_s, cn_g1, input_col=argv.input_col, s_prob_col=argv.s_prob_col,
+    output_df = normalize_by_cell(cn_s, cn_g1, input_col=argv.input_col,
                                   temp_col=argv.temp_col, output_col=argv.output_col, seg_col=argv.seg_col)
 
 
