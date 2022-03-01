@@ -186,29 +186,23 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', s_prob_col='is_
     g1_col = '{}_g1'.format(input_col)
 
     # change column names for G1-phase cells (S-phase columns already changed)
-    g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', 'copy', 'reads', input_col, s_prob_col, 'state', 'ploidy', 'multiplier']]
-    g1_cell_cn['copy_g1'] = g1_cell_cn['copy']
+    g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', input_col, s_prob_col, 'state', 'ploidy']]
     g1_cell_cn['ploidy_g1'] = g1_cell_cn['ploidy']
-    g1_cell_cn['multiplier_g1'] = g1_cell_cn['multiplier']
-    g1_cell_cn['reads_g1'] = g1_cell_cn['reads']
     g1_cell_cn[g1_col] = g1_cell_cn[input_col]
     g1_cell_cn['state_g1'] = g1_cell_cn['state']
-    g1_cell_cn.drop(columns=['copy', 'state', 'reads', input_col, 'ploidy', 'multiplier'], inplace=True)
+    g1_cell_cn.drop(columns=['state', input_col, 'ploidy'], inplace=True)
 
     # change column names for S-phase cells (exepct input_col which was already changed in compute_cell_corrs())
-    s_cell_cn['copy_s'] = s_cell_cn['copy']
     s_cell_cn['ploidy_s'] = s_cell_cn['ploidy']
-    s_cell_cn['multiplier_s'] = s_cell_cn['multiplier']
-    s_cell_cn['reads_s'] = s_cell_cn['reads']
     s_cell_cn['state_s'] = s_cell_cn['state']
-    s_cell_cn.drop(columns=['copy', 'state', 'reads', 'ploidy', 'multiplier'], inplace=True)
+    s_cell_cn.drop(columns=['state', 'ploidy'], inplace=True)
 
     # merge S and G1-phase cell cns to the same loci
     temp_merged_cn = pd.merge(s_cell_cn, g1_cell_cn)
 
     # input column of S-phase cell is normalized by the state of the G1-phase cell
-    temp_merged_cn[output_col] = (temp_merged_cn[s_col] * temp_merged_cn['multiplier_g1']) / \
-                                 ((temp_merged_cn['state_g1'] * temp_merged_cn['multiplier_s']) + np.finfo(float).eps)
+    temp_merged_cn[output_col] = (temp_merged_cn[s_col] * temp_merged_cn['ploidy_g1']) / \
+                                 ((temp_merged_cn['state_g1'] * temp_merged_cn['ploidy_s']) + np.finfo(float).eps)
 
     # center and scale all values for this cell
     temp_merged_cn['output_col'] = preprocessing.scale(temp_merged_cn[output_col].values)
@@ -238,7 +232,7 @@ def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', s_prob_col='is_s_pha
             clone_cn_g1 = cn_g1.loc[cn_g1[clone_col]==clone_id]
         else:
             clone_cn_g1 = cn_g1
-        temp_cell_cn = temp_cell_cn[['chr', 'start', 'end', 'cell_id', 'copy', 'reads', 'rpm_gc_norm', 'quality', 'state', 'ploidy', 'multiplier']]
+        temp_cell_cn = temp_cell_cn[['chr', 'start', 'end', 'cell_id', input_col, 'state', 'ploidy']]
         
         # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
         cell_corrs = compute_cell_corrs(temp_cell_cn, clone_cn_g1, cell_id, col=input_col, s_prob_col=s_prob_col)
