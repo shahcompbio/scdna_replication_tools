@@ -4,6 +4,7 @@ from scdna_replication_tools.compute_consensus_clone_profiles import compute_con
 from scdna_replication_tools.assign_s_to_clones import assign_s_to_clones
 from scdna_replication_tools.bulk_gc_correction import bulk_g1_gc_correction
 from scdna_replication_tools.normalize_by_cell import normalize_by_cell
+from scdna_replication_tools.normalize_by_clone import normalize_by_clone
 from scdna_replication_tools.binarize_rt_profiles import binarize_profiles
 from scdna_replication_tools.compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from scdna_replication_tools.calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
@@ -20,7 +21,7 @@ def get_args():
 
 
 class scRT:
-    def __init__(self, cn_s, cn_g1, input_col='reads', s_prob_col='is_s_phase_prob', 
+    def __init__(self, cn_s, cn_g1, input_col='reads',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
                  col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
         self.cn_s = cn_s
@@ -31,9 +32,6 @@ class scRT:
 
         # column representing clone IDs. If none, then we must perform clustering on our own during inference
         self.clone_col = clone_col
-
-        # column representing S-phase probability of each cell
-        self.s_prob_col = s_prob_col
 
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
@@ -56,7 +54,18 @@ class scRT:
         self.bulk_cn = None
 
 
-    def infer(self):
+    def infer(self, level='cell'):
+        if level=='cell':
+            self.cn_s = self.infer_cell_level()
+        elif level=='clone':
+            self.cn_s = self.infer_clone_level()
+        elif level=='bulk':
+            self.cn_s = self.infer_bulk_level()
+
+        return self.cn_s
+
+
+    def infer_cell_level(self):
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             clusters = kmeans_cluster(self.cn_g1)
@@ -73,8 +82,60 @@ class scRT:
         self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
 
         # normalize by cell
-        self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, s_prob_col=self.s_prob_col, clone_col=self.clone_col,
+        self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, clone_col=self.clone_col,
                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
+
+        # binarize
+        self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
+                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+
+        return self.cn_s
+
+
+    def infer_clone_level(self):
+        # run clustering if no clones are included in G1 input
+        if self.clone_col is None:
+            clusters = kmeans_cluster(self.cn_g1)
+            self.cn_g1 = pd.merge(self.cn_g1, clusters, on='cell_id')
+            self.clone_col = 'cluster_id'
+
+        # compute conesensus clone profiles
+        self.clone_profiles = compute_consensus_clone_profiles(self.cn_g1, self.input_col, clone_col=self.clone_col)
+
+        # assign S-phase cells to clones
+        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col, clone_col=self.clone_col)
+
+        # GC correction
+        self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
+
+        # compute conesensus clone profiles for GC-normed read depth
+        self.clone_profiles_gc_norm = compute_consensus_clone_profiles(self.cn_g1, self.col2, clone_col=self.clone_col)
+
+        # normalize by clone
+        self.cn_s = normalize_by_clone(self.cn_s, self.clone_profiles_gc_norm, input_col=self.col2, clone_col=self.clone_col,
+                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
+
+        # binarize
+        self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
+                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+
+        return self.cn_s
+
+
+     def infer_bulk_level(self):
+        # assign all cells to one pseudobulk dummy clone
+        self.cn_g1[self.clone_col] = 'A'
+        self.cn_s[self.clone_col] = 'A'
+
+        # GC correction
+        self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
+
+        # compute pseudobulk profile for GC-normed read depth
+        self.bulk_profile_gc_norm = compute_consensus_clone_profiles(self.cn_g1, self.col2, clone_col=self.clone_col)
+
+        # normalize by the pseudobulk profile
+        self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=self.clone_col,
+                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
         # binarize
         self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,

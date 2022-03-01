@@ -21,65 +21,66 @@ def get_args():
     return p.parse_args()
 
 
-def cell_clone_norm(clone_copy, clone_reads, clone_states, clone_rpm_gc_norm, cell_cn, clone_id):
+def cell_clone_norm(clone_profiles, cell_cn, clone_id, input_col, temp_col):
     '''
     Find normalized copy or state values between an S-phase cell and its clone.
     '''
-    copy_df = cell_cn[['copy', 'ploidy']]
-    reads_df = cell_cn['reads']
-    states_df = cell_cn[['state', 'ploidy']]
-    rpm_gc_norm_df = cell_cn[['rpm_gc_norm']]
-    clone_cn = clone_copy[clone_id]
-    clone_rds = clone_reads[clone_id]
-    clone_st = clone_states[clone_id]
-    clone_rpm = clone_rpm_gc_norm[clone_id]
+    cell_df = cell_cn[input_col]
+    clone_df = clone_profiles[clone_id]
 
     # remove any rows with NaN
-    copy_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    copy_df.dropna(inplace=True)
-    reads_df.dropna(inplace=True)
-    states_df.dropna(inplace=True)
-    rpm_gc_norm_df.dropna(inplace=True)
+    cell_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    cell_df.dropna(inplace=True)
 
     # merge so that cell and clone have matching indices
-    copy_merged_df = pd.merge(copy_df, clone_cn, left_index=True, right_index=True)
-    copy_merged_df.dropna(inplace=True)
-    reads_merged_df = pd.merge(reads_df, clone_rds, left_index=True, right_index=True)
-    reads_merged_df.dropna(inplace=True)
-    states_merged_df = pd.merge(states_df, clone_st, left_index=True, right_index=True)
-    states_merged_df.dropna(inplace=True)
-    rpm_merged_df = pd.merge(rpm_gc_norm_df, clone_rpm, left_index=True, right_index=True)
-    rpm_merged_df.dropna(inplace=True)
+    merged_df = pd.merge(cell_df, clone_df, left_index=True, right_index=True)
+    merged_df.dropna(inplace=True)
 
-    # divide cell copy by consensus clone profiles
-    # normalize copy to ploidy before normalizing to clone
-    copy_merged_df['copy_norm'] = (copy_merged_df['copy'] / copy_merged_df['ploidy']) / (copy_merged_df[clone_id] + np.finfo(float).eps)
-    copy_norm_df = copy_merged_df.drop(columns=['copy', 'ploidy', clone_id])
-    # reads are normalized by just division -- no ploidy adjustment needed
-    reads_merged_df['reads_norm'] = reads_merged_df['reads'] / (reads_merged_df[clone_id] + np.finfo(float).eps)
-    reads_norm_df = reads_merged_df.drop(columns=['reads', clone_id])
-    # state should normalized just like copy
-    states_merged_df['state_norm'] = (states_merged_df['state'] / states_merged_df['ploidy']) / (states_merged_df[clone_id] + np.finfo(float).eps)
-    states_norm_df = states_merged_df.drop(columns=['state', 'ploidy', clone_id])
-    # gc corrected reads per million are normalized by just division -- no ploidy adjustment needed
-    rpm_merged_df['rpm_gc_norm_clone_norm'] = rpm_merged_df['rpm_gc_norm'] / (rpm_merged_df[clone_id] + np.finfo(float).eps)
-    rpm_norm_df = rpm_merged_df.drop(columns=['rpm_gc_norm', clone_id])
+    # divide cell profile by consensus clone profile
+    merged_df[temp_col] = merged_df[input_col] / (merged_df[clone_id] + np.finfo(float).eps)
+    merged_df = merged_df.drop(columns=[input_col, clone_id])
     
-    # merge this new copy_norm column back into the original cell_cn
-    norm_df = pd.merge(reads_norm_df, copy_norm_df, left_index=True, right_index=True)
-    norm_df = pd.merge(norm_df, states_norm_df, left_index=True, right_index=True)
-    norm_df = pd.merge(norm_df, rpm_norm_df, left_index=True, right_index=True)
-    out = pd.merge(cell_cn, norm_df, left_index=True, right_index=True)
+    # merge this new temp_col column back into the original cell_cn
+    out = pd.merge(cell_cn, merged_df, left_index=True, right_index=True)
 
     # re-sort the rows since they get messed up while merging
     out.reset_index(inplace=True)
     out.sort_values(by=['chr', 'start', 'end'])
 
-    # center and scale all values for this cell
-    out['reads_norm_2'] = preprocessing.scale(out['reads_norm'].values)
-    out['copy_norm_2'] = preprocessing.scale(out['copy_norm'].values)
-
     return out
+
+
+
+def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col='clone_id',
+                       temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
+    # drop loci with nans
+    cn_s.dropna(inplace=True)
+    clone_profiles.dropna(inplace=True)
+
+    clone_idx = ['chr', 'start', 'end']
+    clone_profiles = clone_profiles.set_index(clone_idx)
+
+    cn_s = add_cell_ploidies(cn_s)
+
+    # loop through each cell and divide copy by its corresponding clone
+    output_list = []
+    for cell_id, cell_cn in cn_s.groupby('cell_id'):
+        # set index to match clone dfs
+        temp_cell_cn = cell_cn.set_index(clone_idx).copy()
+        # extract the assigned clone_id
+        temp_clone_id = temp_cell_cn.clone_id.unique()[0]
+        # add normalized copy column (with new indices)
+        temp_out_cn = cell_clone_norm(clone_profiles, temp_cell_cn, temp_clone_id, input_col, temp_col)
+        # remove cell specific CNAs by nominating changepoints
+        temp_out_cn = remove_cell_specific_CNAs(temp_out_cn, input_col=temp_col, output_col=output_col, seg_col=seg_col)
+
+        output_list.append(temp_out_cn)
+
+    # convert list to output df
+    cn_s_output = pd.concat(output_list)
+
+    return cn_s_output
+
 
 
 
