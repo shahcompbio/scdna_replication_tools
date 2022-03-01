@@ -122,7 +122,7 @@ class scRT:
         return self.cn_s
 
 
-     def infer_bulk_level(self):
+    def infer_bulk_level(self):
         # assign all cells to one pseudobulk dummy clone
         self.cn_g1[self.clone_col] = 'A'
         self.cn_s[self.clone_col] = 'A'

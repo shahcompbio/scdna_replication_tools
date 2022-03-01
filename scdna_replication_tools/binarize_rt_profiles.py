@@ -46,6 +46,11 @@ def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', t
         X = cell_cn[input_col].values.reshape(-1, 1)
         gm = GaussianMixture(n_components=2, random_state=0)
         states = gm.fit_predict(X)
+        print('X.shape', X.shape)
+        print('cell_cn.shape', cell_cn.shape)
+        print('cell_cn.head()\n', cell_cn.head())
+        print('cn.loc[cell_cn.index].shape\n', cn.loc[cell_cn.index].shape)
+        print('cn.loc[cell_cn.index].head()\n', cn.loc[cell_cn.index].head())
 
         # add means and covariances of this cell to cn 
         for j in range(2):

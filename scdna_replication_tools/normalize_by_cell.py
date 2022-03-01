@@ -139,7 +139,7 @@ def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_val
         cell_cn.loc[chunk.index, input_col4] = preprocessing.scale(chunk[input_col3].values)
 
     # center and scale the final result while assigning to output_col
-    cell_cn[output_col] = preprocessing.scale(chunk[input_col4].values)
+    cell_cn[output_col] = preprocessing.scale(cell_cn[input_col4].values)
 
     return cell_cn
 
