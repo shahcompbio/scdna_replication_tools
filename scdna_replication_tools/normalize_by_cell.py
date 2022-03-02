@@ -27,7 +27,7 @@ def sort_by_cell_and_loci(cn):
     chr_order = [str(i+1) for i in range(22)]
     chr_order.append('X')
     chr_order.append('Y')
-    cn.chr.cat.set_categories(chr_order, inplace=True)
+    cn.chr = cn.chr.cat.set_categories(chr_order)
     cn = cn.sort_values(by=['cell_id', 'chr', 'start'])
     return cn
 
