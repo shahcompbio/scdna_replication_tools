@@ -55,7 +55,7 @@ def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col=
     clone_profiles.dropna(inplace=True)
 
     clone_idx = ['chr', 'start', 'end']
-    clone_profiles = clone_profiles.set_index(clone_idx)
+    clone_profiles = clone_profiles.reset_index().set_index(clone_idx)
 
     cn_s = add_cell_ploidies(cn_s)
 
@@ -74,7 +74,7 @@ def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col=
         output_list.append(temp_out_cn)
 
     # convert list to output df
-    cn_s_output = pd.concat(output_list)
+    cn_s_output = pd.concat(output_list, ignore_index=True)
 
     return cn_s_output
 

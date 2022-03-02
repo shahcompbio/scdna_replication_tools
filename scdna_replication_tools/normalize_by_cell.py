@@ -170,7 +170,7 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm'):
         })
         cell_corrs.append(temp_df)
 
-    cell_corrs = pd.concat(cell_corrs)
+    cell_corrs = pd.concat(cell_corrs, ignore_index=True)
 
     # sort by pearson r in descending order
     cell_corrs.sort_values(by=['pearson_r'], ascending=False, inplace=True)
@@ -255,7 +255,7 @@ def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', clone_col='clone_id'
         output_list.append(temp_out_cn)
 
     # convert list to df and save as tsv
-    output_df = pd.concat(output_list)
+    output_df = pd.concat(output_list, ignore_index=True)
 
     return output_df
 

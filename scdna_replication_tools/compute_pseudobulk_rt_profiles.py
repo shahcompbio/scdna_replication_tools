@@ -28,8 +28,7 @@ def calc_population_rt(cn, input_col, output_col, time_col='rt_hours'):
         })
         pop_cn.append(temp_df)
 
-    pop_cn = pd.concat(pop_cn)
-    pop_cn = pop_cn.reset_index().drop(columns=['index'])
+    pop_cn = pd.concat(pop_cn, ignore_index=True)
 
     # compute time each loci replicates within S-phase by hours
     # push to all negative values and multiply by -1 so

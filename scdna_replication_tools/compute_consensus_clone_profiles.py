@@ -24,7 +24,7 @@ def filter_ploidies(cn, clone_col='clone_id'):
 
         pieces.append(group[group['ploidy'] == keep_ploidy].copy())
 
-    return pd.concat(pieces).reset_index(drop=True)
+    return pd.concat(pieces, ignore_index=True)
 
 
 def add_cell_ploidies(cn):

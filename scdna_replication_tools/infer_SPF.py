@@ -69,7 +69,7 @@ class SPF:
         # merge s and non_s dfs
         s_df['is_s_phase'] = True
         non_s_df['is_s_phase'] = False
-        df = pd.concat([s_df, non_s_df])
+        df = pd.concat([s_df, non_s_df], ignore_index=True)
 
         # df for storing subsampled fractions
         subsampled_fracs = pd.DataFrame(columns=['n', self.clone_col, 'frac'])
