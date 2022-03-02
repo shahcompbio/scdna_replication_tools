@@ -124,8 +124,8 @@ class scRT:
 
     def infer_bulk_level(self):
         # assign all cells to one pseudobulk dummy clone
-        self.cn_g1[self.clone_col] = 'A'
-        self.cn_s[self.clone_col] = 'A'
+        self.cn_g1.loc[self.cn_g1.index, self.clone_col] = 'A'
+        self.cn_s.loc[self.cn_s.index, self.clone_col] = 'A'
 
         # GC correction
         self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)

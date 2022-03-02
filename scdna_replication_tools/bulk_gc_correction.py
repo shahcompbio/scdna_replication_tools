@@ -19,7 +19,7 @@ def get_args():
 
 
 def compute_reads_per_million(cn, input_col='reads', new_col='rpm'):
-    cn[new_col] = -1
+    cn.loc[cn.index, new_col] = -1
     for cell_id, cell_cn in cn.groupby('cell_id'):
         total_reads = sum(cell_cn[input_col].values)
         cn.loc[cell_cn.index, new_col] = (cell_cn[input_col] / total_reads) * 1E6
