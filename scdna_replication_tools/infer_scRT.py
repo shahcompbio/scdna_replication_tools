@@ -52,6 +52,7 @@ class scRT:
         self.clone_profiles = None
         self.gc_curve = None
         self.bulk_cn = None
+        self.manhattan_df = None
 
 
     def infer(self, level='cell'):
@@ -86,8 +87,10 @@ class scRT:
                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
         # binarize
-        self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
-                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+        self.cn_s, self.manhattan_df = binarize_profiles(
+            self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
+            MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2
+        )
 
         return self.cn_s
 
@@ -116,8 +119,10 @@ class scRT:
                                        temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
         # binarize
-        self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
-                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+        self.cn_s, self.manhattan_df = binarize_profiles(
+            self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
+            MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2
+        )
 
         return self.cn_s
 
@@ -138,8 +143,10 @@ class scRT:
                                        temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
 
         # binarize
-        self.cn_s = binarize_profiles(self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
-                                      MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2)
+        self.cn_s, self.manhattan_df = binarize_profiles(
+            self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
+            MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2
+        )
 
         return self.cn_s
 
