@@ -203,7 +203,7 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', output_col='sta
                                  ((temp_merged_cn['state_g1'] * temp_merged_cn['ploidy_s']) + np.finfo(float).eps)
 
     # center and scale all values for this cell
-    temp_merged_cn['output_col'] = preprocessing.scale(temp_merged_cn[output_col].values)
+    temp_merged_cn[output_col] = preprocessing.scale(temp_merged_cn[output_col].values)
 
     temp_merged_cn = temp_merged_cn[['chr', 'start', 'end' , 'cell_id', output_col]]
 
