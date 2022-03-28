@@ -19,7 +19,7 @@ def get_args():
     return p.parse_args()
 
 
-def cell_clone_norm(clone_profiles, cell_cn, clone_id, input_col, temp_col):
+def cell_clone_norm(clone_profiles, cell_cn, clone_id, input_col, temp_col, chr_col='chr', start_col='start'):
     '''
     Find normalized copy or state values between an S-phase cell and its clone.
     '''
@@ -43,33 +43,35 @@ def cell_clone_norm(clone_profiles, cell_cn, clone_id, input_col, temp_col):
 
     # re-sort the rows since they get messed up while merging
     out.reset_index(inplace=True)
-    out.sort_values(by=['chr', 'start', 'end'])
+    out.sort_values(by=[chr_col, start_col])
 
     return out
 
 
-def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col='clone_id',
-                       temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
+def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col='clone_id', cell_col='cell_id',
+                       temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments',
+                       chr_col='chr', start_col='start', cn_state_col='state', ploidy_col='ploidy'):
     # drop loci with nans
     cn_s.dropna(inplace=True)
     clone_profiles.dropna(inplace=True)
 
-    clone_idx = ['chr', 'start', 'end']
+    clone_idx = [chr_col, start_col]
     clone_profiles = clone_profiles.reset_index().set_index(clone_idx)
 
-    cn_s = add_cell_ploidies(cn_s)
+    cn_s = add_cell_ploidies(cn_s, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
     # loop through each cell and divide copy by its corresponding clone
     output_list = []
-    for cell_id, cell_cn in cn_s.groupby('cell_id'):
+    for cell_id, cell_cn in cn_s.groupby(cell_col):
         # set index to match clone dfs
         temp_cell_cn = cell_cn.set_index(clone_idx).copy()
         # extract the assigned clone_id
         temp_clone_id = temp_cell_cn.clone_id.unique()[0]
         # add normalized copy column (with new indices)
-        temp_out_cn = cell_clone_norm(clone_profiles, temp_cell_cn, temp_clone_id, input_col, temp_col)
+        temp_out_cn = cell_clone_norm(clone_profiles, temp_cell_cn, temp_clone_id, input_col, temp_col, chr_col=chr_col, start_col=start_col)
         # remove cell specific CNAs by nominating changepoints
-        temp_out_cn = remove_cell_specific_CNAs(temp_out_cn, input_col=temp_col, output_col=output_col, seg_col=seg_col)
+        temp_out_cn = remove_cell_specific_CNAs(temp_out_cn, input_col=temp_col, output_col=output_col, seg_col=seg_col,
+                                                cell_col=cell_col, chr_col=chr_col, start_col=start_col)
 
         output_list.append(temp_out_cn)
 

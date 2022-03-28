@@ -46,7 +46,7 @@ def clone_correlations(clone_df, cell_cn, col_name='reads'):
     return pd.DataFrame(clone_corrs)
 
 
-def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clone_id'):
+def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clone_id', cell_col='cell_id', chr_col='chr', start_col='start'):
     '''
     Find the clone that belongs to each S-phase cell
 
@@ -57,15 +57,15 @@ def assign_s_to_clones(s_phase_cells, clone_df, col_name='reads', clone_col='clo
     Returns:
         dataframe matching s_phase_cells with clone_id column added from best matching clone
     '''
-    s_phase_cells['chr'] = s_phase_cells['chr'].astype(str)
+    s_phase_cells[chr_col] = s_phase_cells[chr_col].astype(str)
 
     # ensure that clone indices are loci and not extra columns
-    clone_idx = ['chr', 'start', 'end']
+    clone_idx = [chr_col, start_col]
     if set(clone_idx).issubset(set(clone_df.columns)):
         clone_df.set_index(clone_idx, inplace=True)
 
     # find clone for every S-phase cell
-    for cell_id, cell_cn in s_phase_cells.groupby('cell_id'):
+    for cell_id, cell_cn in s_phase_cells.groupby(cell_col):
         # set index to match clone dfs
         temp_cell_cn = cell_cn.set_index(clone_idx).copy()
 

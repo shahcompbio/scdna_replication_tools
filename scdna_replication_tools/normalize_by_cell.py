@@ -21,18 +21,18 @@ def get_args():
     return p.parse_args()
 
 
-def sort_by_cell_and_loci(cn):
+def sort_by_cell_and_loci(cn, cell_col='cell_id', chr_col='chr', start_col='start'):
     """ Sort long-form dataframe so each cell follows correct genomic ordering """
-    cn.chr = cn.chr.astype('category')
+    cn[chr_col] = cn[chr_col].astype('category')
     chr_order = [str(i+1) for i in range(22)]
     chr_order.append('X')
     chr_order.append('Y')
-    cn.chr = cn.chr.cat.set_categories(chr_order)
-    cn = cn.sort_values(by=['cell_id', 'chr', 'start'])
+    cn[chr_col] = cn[chr_col].cat.set_categories(chr_order)
+    cn = cn.sort_values(by=[cell_col, chr_col, start_col])
     return cn
 
 
-def identify_changepoint_segs(cell_cn, col):
+def identify_changepoint_segs(cell_cn, col, chr_col='chr'):
     Y = cell_cn[col].copy().values
     
     # array to note the nominated CNA regions
@@ -55,8 +55,8 @@ def identify_changepoint_segs(cell_cn, col):
         [statistic, pval] = ttest_ind(region, background)
 
         # the segment would fall within one chromosome if it were real
-        left_chr = cell_cn['chr'].values[result[0]]
-        right_chr = cell_cn['chr'].values[result[1]-1]
+        left_chr = cell_cn[chr_col].values[result[0]]
+        right_chr = cell_cn[chr_col].values[result[1]-1]
 
         if (median_ratio>1.1 or median_ratio<0.9) and pval<0.05 and left_chr==right_chr:
             # mark that this region was a CNA
@@ -75,8 +75,8 @@ def identify_changepoint_segs(cell_cn, col):
 
         # find the chromosome where the breakpoint lies
         ind = result[0]
-        left_chr = cell_cn['chr'].values[ind]
-        right_chr = cell_cn['chr'].values[ind-1]
+        left_chr = cell_cn[chr_col].values[ind]
+        right_chr = cell_cn[chr_col].values[ind-1]
 
         # set indices based on whether changepoint occurs at chr1 or chrX
         if right_chr=='1':
@@ -113,9 +113,10 @@ def identify_changepoint_segs(cell_cn, col):
     return Y, chng
 
 
-def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_value', seg_col='changepoint_segments'):
+def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_value', seg_col='changepoint_segments',
+                              cell_col='cell_id', chr_col='chr', start_col='start'):
     # make sure genomic loci are in correct order
-    cell_cn = sort_by_cell_and_loci(cell_cn)
+    cell_cn = sort_by_cell_and_loci(cell_cn, cell_col=cell_col, chr_col=chr_col, start_col=start_col)
     
     # trim tails of normal distribution before identifying any changepoints
     input_col2 = input_col + '_2'
@@ -126,7 +127,7 @@ def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_val
                                 preprocessing.scale(cell_cn[input_col2].values)>-4,
                                 other=np.percentile(cell_cn[input_col2].values, 5))
 
-    Y, chng = identify_changepoint_segs(cell_cn, input_col2)
+    Y, chng = identify_changepoint_segs(cell_cn, input_col2, chr_col=chr_col)
 
     # save chng as our changepoint segments for this cell
     cell_cn[seg_col] = chng
@@ -144,7 +145,8 @@ def remove_cell_specific_CNAs(cell_cn, input_col='copy_norm', output_col='rt_val
     return cell_cn
 
 
-def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm'):
+def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm',
+                       cell_col='cell_id', chr_col='chr', start_col='start'):
     s_col = '{}_s'.format(col)
     g1_col = '{}_g1'.format(col)
     
@@ -153,9 +155,9 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm'):
     s_cell_cn.drop(columns=[col], inplace=True)
 
     cell_corrs = []
-    for g1_cell_id, g1_cell_cn in clone_cn_g1.groupby('cell_id'):
+    for g1_cell_id, g1_cell_cn in clone_cn_g1.groupby(cell_col):
         # rename columns that appear in both cns
-        g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', col]]
+        g1_cell_cn = g1_cell_cn[[chr_col, start_col, col]]
         g1_cell_cn[g1_col] = g1_cell_cn[col]
         g1_cell_cn.drop(columns=[col], inplace=True)
 
@@ -178,22 +180,23 @@ def compute_cell_corrs(s_cell_cn, clone_cn_g1, s_cell_id, col='rpm_gc_norm'):
     return cell_corrs
 
 
-def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', output_col='state_norm'):
+def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', output_col='state_norm',
+                 cell_col='cell_id', chr_col='chr', start_col='start', cn_state_col='state', ploidy_col='ploidy'):
     ''' Normalize the S-phase cell by the G1-phase cell '''
     s_col = '{}_s'.format(input_col)
     g1_col = '{}_g1'.format(input_col)
 
     # change column names for G1-phase cells (S-phase columns already changed)
-    g1_cell_cn = g1_cell_cn[['chr', 'start', 'end', input_col, 'state', 'ploidy']]
-    g1_cell_cn['ploidy_g1'] = g1_cell_cn['ploidy']
+    g1_cell_cn = g1_cell_cn[[chr_col, start_col, input_col, cn_state_col, ploidy_col]]
+    g1_cell_cn['ploidy_g1'] = g1_cell_cn[ploidy_col]
     g1_cell_cn[g1_col] = g1_cell_cn[input_col]
-    g1_cell_cn['state_g1'] = g1_cell_cn['state']
-    g1_cell_cn.drop(columns=['state', input_col, 'ploidy'], inplace=True)
+    g1_cell_cn['state_g1'] = g1_cell_cn[cn_state_col]
+    g1_cell_cn.drop(columns=[cn_state_col, input_col, ploidy_col], inplace=True)
 
     # change column names for S-phase cells (exepct input_col which was already changed in compute_cell_corrs())
-    s_cell_cn['ploidy_s'] = s_cell_cn['ploidy']
-    s_cell_cn['state_s'] = s_cell_cn['state']
-    s_cell_cn.drop(columns=['state', 'ploidy'], inplace=True)
+    s_cell_cn['ploidy_s'] = s_cell_cn[ploidy_col]
+    s_cell_cn['state_s'] = s_cell_cn[cn_state_col]
+    s_cell_cn.drop(columns=[cn_state_col, ploidy_col], inplace=True)
 
     # merge S and G1-phase cell cns to the same loci
     temp_merged_cn = pd.merge(s_cell_cn, g1_cell_cn)
@@ -205,24 +208,25 @@ def g1_cell_norm(s_cell_cn, g1_cell_cn, input_col='rpm_gc_norm', output_col='sta
     # center and scale all values for this cell
     temp_merged_cn[output_col] = preprocessing.scale(temp_merged_cn[output_col].values)
 
-    temp_merged_cn = temp_merged_cn[['chr', 'start', 'end' , 'cell_id', output_col]]
+    temp_merged_cn = temp_merged_cn[[chr_col, start_col, cell_col, output_col]]
 
     return temp_merged_cn
 
 
-def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', clone_col='clone_id',
-                      temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments'):
+def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', clone_col='clone_id', cell_col='cell_id',
+                      temp_col='temp_rt', output_col='rt_value', seg_col='changepoint_segments',
+                      chr_col='chr', start_col='start', cn_state_col='state', ploidy_col='ploidy'):
     # drop loci with nans
     cn_s.dropna(inplace=True)
     cn_g1.dropna(inplace=True)
 
     # add cell ploidies
-    cn_s = add_cell_ploidies(cn_s)
-    cn_g1 = add_cell_ploidies(cn_g1)
+    cn_s = add_cell_ploidies(cn_s, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
+    cn_g1 = add_cell_ploidies(cn_g1, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
     # loop through each S-phase cell, find it's matching G1-phase cell & normalize
     output_list = []
-    for cell_id, cell_cn in cn_s.groupby('cell_id'):
+    for cell_id, cell_cn in cn_s.groupby(cell_col):
         temp_cell_cn = cell_cn.copy()
 
         if clone_col in cn_g1.columns and clone_col in cn_s.columns:
@@ -230,17 +234,20 @@ def normalize_by_cell(cn_s, cn_g1, input_col='rpm_gc_norm', clone_col='clone_id'
             clone_cn_g1 = cn_g1.loc[cn_g1[clone_col]==clone_id]
         else:
             clone_cn_g1 = cn_g1
-        temp_cell_cn = temp_cell_cn[['chr', 'start', 'end', 'cell_id', input_col, 'state', 'ploidy']]
+        temp_cell_cn = temp_cell_cn[[chr_col, start_col, cell_col, input_col, cn_state_col, ploidy_col]]
         
         # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
-        cell_corrs = compute_cell_corrs(temp_cell_cn, clone_cn_g1, cell_id, col=input_col)
+        cell_corrs = compute_cell_corrs(temp_cell_cn, clone_cn_g1, cell_id, col=input_col,
+                                        cell_col=cell_col, chr_col=chr_col, start_col=start_col)
         
         # get data from the G1 cell that matches best
         g1_cell_id = cell_corrs.iloc[0].g1_cell_id
-        g1_cell_cn = clone_cn_g1.loc[clone_cn_g1['cell_id']==g1_cell_id]
+        g1_cell_cn = clone_cn_g1.loc[clone_cn_g1[cell_col]==g1_cell_id]
 
         # normalise S-phase cell by the G1-phase cell
-        temp_merged_cn = g1_cell_norm(temp_cell_cn, g1_cell_cn, input_col=input_col, output_col=temp_col)
+        temp_merged_cn = g1_cell_norm(temp_cell_cn, g1_cell_cn, input_col=input_col, output_col=temp_col,
+                                      cell_col=cell_col, chr_col=chr_col, start_col=start_col,
+                                      cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
         # add some info from G1-phase cell for posterity
         temp_merged_cn['G1_match_cell_id'] = g1_cell_id

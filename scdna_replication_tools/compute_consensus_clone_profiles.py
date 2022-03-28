@@ -14,32 +14,33 @@ def get_args():
     return p.parse_args()
 
 
-def filter_ploidies(cn, clone_col='clone_id'):
+def filter_ploidies(cn, clone_col='clone_id', ploidy_col='ploidy'):
     """ Only use cells from the majority ploidy of each clone. """
-    ploidy_counts = cn.groupby([clone_col, 'ploidy']).size()
+    ploidy_counts = cn.groupby([clone_col, ploidy_col]).size()
 
     pieces = []
     for clone_id, group in cn.groupby(clone_col):
-        keep_ploidy = group.groupby('ploidy').size().idxmax()
+        keep_ploidy = group.groupby(ploidy_col).size().idxmax()
 
-        pieces.append(group[group['ploidy'] == keep_ploidy].copy())
+        pieces.append(group[group[ploidy_col] == keep_ploidy].copy())
 
     return pd.concat(pieces, ignore_index=True)
 
 
-def add_cell_ploidies(cn):
+def add_cell_ploidies(cn, cell_col='cell_id', cn_state_col='state', ploidy_col='ploidy'):
     """ Add a ploidy value for each cell. """
-    cn.set_index('cell_id', inplace=True)
+    cn.set_index(cell_col, inplace=True)
 
     # use mode of state to assign a ploidy value for each cell
-    for cell_id, group in cn.groupby('cell_id'):
-        cn.loc[cell_id, 'ploidy'] = mode(group['state'])[0][0]
+    for cell_id, group in cn.groupby(cell_col):
+        cn.loc[cell_id, ploidy_col] = mode(group[cn_state_col])[0][0]
 
     cn.reset_index(inplace=True)
     return cn
 
 
-def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', aggfunc=np.median):
+def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', cell_col='cell_id', chr_col='chr',
+                                     start_col='start', cn_state_col='state', ploidy_col='ploidy', aggfunc=np.median):
     '''
     Compute consensus copy number profiles for a given set of G1-phase cells
 
@@ -55,18 +56,18 @@ def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', aggfunc
     # removing any clone belonging to None
     cn = cn[cn[clone_col] != 'None']
 
-    coord_cols = ['chr', 'start', 'end']
+    coord_cols = [chr_col, start_col]
     bin_idx = cn.set_index(coord_cols).index
 
     # add ploidy values for each cell
-    cn = add_cell_ploidies(cn)
+    cn = add_cell_ploidies(cn, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
     # get rid of cell_id column since we are aggregating for each clone
-    del cn['cell_id']
+    del cn[cell_col]
 
     # remove cells from certain clones that don't belong to the majority ploidy
     # i.e. remove tetraploid cells if clone is 90% diploid
-    cn = filter_ploidies(cn, clone_col=clone_col)
+    cn = filter_ploidies(cn, clone_col=clone_col, ploidy_col=ploidy_col)
 
     # pivot long-form df to matrix and aggregate by clone_col
     clone_profiles = cn.pivot_table(

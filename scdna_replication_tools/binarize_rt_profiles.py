@@ -19,7 +19,7 @@ def get_args():
     return p.parse_args()
 
 
-def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', thresh_col='binary_thresh',
+def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', thresh_col='binary_thresh', cell_col='cell_id',
                         MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
     '''
     Use normalized read depth profiles to compute binary replication timing profiles for each cell.
@@ -41,7 +41,7 @@ def binarize_profiles(cn, input_col, rs_col='rt_state', frac_rt_col='frac_rt', t
         manhattan_df: dataframe of manhattan distances for each threshold attempted for each cell
     '''
     manhattan_df = []
-    for cell_id, cell_cn in cn.groupby('cell_id'):
+    for cell_id, cell_cn in cn.groupby(cell_col):
         # run GMM
         X = cell_cn[input_col].values.reshape(-1, 1)
         gm = GaussianMixture(n_components=2, random_state=0)

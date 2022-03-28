@@ -21,17 +21,29 @@ def get_args():
 
 
 class scRT:
-    def __init__(self, cn_s, cn_g1, input_col='reads',
+    def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id',
+                 cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
                  col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
-        # column for computing consensus clone profiles, assigning cells to clones, input for GC correction
+        # input for GC correction --> inferring scRT states
         self.input_col = input_col
+
+        # column for computing consensus clone profiles, assigning cells to clones
+        self.assign_col = assign_col
 
         # column representing clone IDs. If none, then we must perform clustering on our own during inference
         self.clone_col = clone_col
+
+        # column representing library IDs, cell IDs, etc.
+        self.library_col = library_col
+        self.cell_col = cell_col
+        self.cn_state_col = cn_state_col
+        self.chr_col = chr_col
+        self.start_col = start_col
+        self.gc_col = gc_col
 
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
@@ -50,7 +62,6 @@ class scRT:
 
         # class objects that get computed are initialized as None
         self.clone_profiles = None
-        self.gc_curve = None
         self.bulk_cn = None
         self.manhattan_df = None
 
@@ -70,21 +81,28 @@ class scRT:
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             clusters = kmeans_cluster(self.cn_g1)
-            self.cn_g1 = pd.merge(self.cn_g1, clusters, on='cell_id')
+            self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
             self.clone_col = 'cluster_id'
 
         # compute conesensus clone profiles
-        self.clone_profiles = compute_consensus_clone_profiles(self.cn_g1, self.input_col, clone_col=self.clone_col)
+        self.clone_profiles = compute_consensus_clone_profiles(
+            self.cn_g1, self.assign_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
 
         # assign S-phase cells to clones
-        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col, clone_col=self.clone_col)
+        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.assign_col, clone_col=self.clone_col,
+                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
 
         # GC correction
-        self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
+        self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+                                                      cell_col=self.cell_col, library_col=self.library_col, output_col=self.col2)
 
         # normalize by cell
         self.cn_s = normalize_by_cell(self.cn_s, self.cn_g1, input_col=self.col2, clone_col=self.clone_col,
-                                      temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
+                                      temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4,
+                                      cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col,
+                                      cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
 
         # binarize
         self.cn_s, self.manhattan_df = binarize_profiles(
@@ -99,24 +117,31 @@ class scRT:
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             clusters = kmeans_cluster(self.cn_g1)
-            self.cn_g1 = pd.merge(self.cn_g1, clusters, on='cell_id')
+            self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
             self.clone_col = 'cluster_id'
 
         # compute conesensus clone profiles
-        self.clone_profiles = compute_consensus_clone_profiles(self.cn_g1, self.input_col, clone_col=self.clone_col)
+        self.clone_profiles = compute_consensus_clone_profiles(
+            self.cn_g1, self.assign_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
 
         # assign S-phase cells to clones
-        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col, clone_col=self.clone_col)
+        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.input_col, clone_col=self.clone_col,
+                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
 
         # GC correction
-        self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
+        self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+                                                      cell_col=self.cell_col, library_col=self.library_col, output_col=self.col2)
 
         # compute conesensus clone profiles for GC-normed read depth
         self.clone_profiles_gc_norm = compute_consensus_clone_profiles(self.cn_g1, self.col2, clone_col=self.clone_col)
 
         # normalize by clone
         self.cn_s = normalize_by_clone(self.cn_s, self.clone_profiles_gc_norm, input_col=self.col2, clone_col=self.clone_col,
-                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4)
+                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4,
+                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col,
+                                       cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
 
         # binarize
         self.cn_s, self.manhattan_df = binarize_profiles(
@@ -133,10 +158,14 @@ class scRT:
         self.cn_s.loc[self.cn_s.index, self.clone_col] = 'A'
 
         # GC correction
-        self.cn_s, self.cn_g1, self.gc_curve = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, output_col=self.col2)
+        self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+                                                      cell_col=self.cell_col, library_col=self.library_col, output_col=self.col2)
 
         # compute pseudobulk profile for GC-normed read depth
-        self.bulk_profile_gc_norm = compute_consensus_clone_profiles(self.cn_g1, self.col2, clone_col=self.clone_col)
+        self.bulk_profile_gc_norm = compute_consensus_clone_profiles(
+            self.cn_g1, self.col2, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
 
         # normalize by the pseudobulk profile
         self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=self.clone_col,
