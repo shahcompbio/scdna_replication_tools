@@ -21,7 +21,7 @@ def get_args():
 
 
 class scRT:
-    def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id',
+    def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id', ploidy_col='ploidy',
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
                  col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
@@ -44,6 +44,7 @@ class scRT:
         self.chr_col = chr_col
         self.start_col = start_col
         self.gc_col = gc_col
+        self.ploidy_col = ploidy_col
 
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
