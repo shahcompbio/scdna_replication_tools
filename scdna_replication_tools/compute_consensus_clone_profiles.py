@@ -59,11 +59,20 @@ def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', cell_co
     coord_cols = [chr_col, start_col]
     bin_idx = cn.set_index(coord_cols).index
 
+    print('cn.columns 1\n', cn.columns)
+    print('cn.head 1\n', cn.head())
+
     # add ploidy values for each cell
     cn = add_cell_ploidies(cn, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
+    print('cn.columns 2\n', cn.columns)
+    print('cn.head 2\n', cn.head())
+
     # get rid of cell_id column since we are aggregating for each clone
-    del cn[cell_col]
+    cn.drop(columns=[cell_col], inplace=True)
+
+    print('cn.columns 3\n', cn.columns)
+    print('cn.head 3\n', cn.head())
 
     # remove cells from certain clones that don't belong to the majority ploidy
     # i.e. remove tetraploid cells if clone is 90% diploid

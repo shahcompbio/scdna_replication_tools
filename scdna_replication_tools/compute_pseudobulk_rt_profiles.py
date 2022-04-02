@@ -63,8 +63,8 @@ def compute_pseudobulk_rt_profiles(cn, input_col, output_col='pseduobulk', time_
     if clone_col is not None:
         for clone_id, clone_cn in cn.groupby('clone_id'):
             # compute pseudobulk for this clone
-            temp_output_col = 'clone{}_{}'.format(clone_id, input_col)
-            temp_time_col = 'clone{}_{}'.format(clone_id, time_col)
+            temp_output_col = '{}_clone{}_{}'.format(output_col, clone_id, input_col)
+            temp_time_col = '{}_clone{}_{}'.format(output_col, clone_id, time_col)
             temp_cn = calc_population_rt(clone_cn, input_col=input_col, output_col=temp_output_col, time_col=temp_time_col)
             
             # merge clone pseudobulk results with previous results

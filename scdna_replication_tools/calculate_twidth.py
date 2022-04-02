@@ -190,7 +190,9 @@ def compute_and_plot_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_sta
         t_width: width of time from scheduled replication window that ranges from bins that are 25% to 75% replicated;
                 large values indicate high cell-to-cell heterogeneity in replication timing
     '''
-    calculate_twidth(cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, curve=curve)
+    t_width, right_time, left_time, popt, time_bins, pct_reps = calculate_twidth(
+        cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, curve=curve
+    )
     ax = plot_cell_variability(time_bins, pct_reps, popt,
                                left_time, right_time, t_width,
                                alpha=alpha, title=title, curve=curve, ax=ax)
