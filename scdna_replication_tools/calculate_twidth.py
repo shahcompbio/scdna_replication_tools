@@ -34,7 +34,7 @@ def compute_time_from_scheduled_column(cn, pseudobulk_col='pseudobulk_hours', fr
     return cn
 
 
-def calc_pct_replicated_per_time_bin(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', per_cell=False, query2=None):
+def calc_pct_replicated_per_time_bin(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', per_cell=False, query2=None, cell_col='cell_id',):
     '''
     Compute the percent of replicated segments for a set of time from scheduled intervals
 
@@ -59,7 +59,7 @@ def calc_pct_replicated_per_time_bin(cn, tfs_col='time_from_scheduled_rt', rs_co
             temp_cn = temp_cn.query(query2)
         if temp_cn.shape[0] > 0:
             if per_cell:
-                for cell_id, chunk_cn in temp_cn.groupby('cell_id'):
+                for cell_id, chunk_cn in temp_cn.groupby(cell_col):
                     if chunk_cn.shape[0] > 0:
                         percent_replicated = sum(chunk_cn[rs_col]) / len(chunk_cn[rs_col])
                         pct_reps.append(percent_replicated)
@@ -139,7 +139,7 @@ def plot_cell_variability(xdata, ydata, popt=None, left_time=None, right_time=No
     return ax
 
 
-def calculate_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', per_cell=False, query2=None, curve='sigmoid'):
+def calculate_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', per_cell=False, query2=None, curve='sigmoid', cell_col='cell_id'):
     '''
     Calculate T-width value for a set of S-phase cells
 
@@ -159,7 +159,7 @@ def calculate_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', pe
         time_bins: list of time from replication intervals
         pct_reps: list of percent replicated values for each interval in time_bins
     '''
-    time_bins, pct_reps = calc_pct_replicated_per_time_bin(cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2)
+    time_bins, pct_reps = calc_pct_replicated_per_time_bin(cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, cell_col=cell_col)
     if curve == 'sigmoid':
         popt, pcov = fit_sigmoid(time_bins, pct_reps)
         t_width, right_time, left_time = calc_t_width(popt)
@@ -171,7 +171,7 @@ def calculate_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', pe
 
 
 def compute_and_plot_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_state', per_cell=False, query2=None,
-                            alpha=1, title='Cell-to-cell variabilty', curve='sigmoid', ax=None):
+                            cell_col='cell_id', alpha=1, title='Cell-to-cell variabilty', curve='sigmoid', ax=None):
     '''
     Calculate T-width value and plot optimized curve alongside data
 
@@ -191,7 +191,7 @@ def compute_and_plot_twidth(cn, tfs_col='time_from_scheduled_rt', rs_col='rt_sta
                 large values indicate high cell-to-cell heterogeneity in replication timing
     '''
     t_width, right_time, left_time, popt, time_bins, pct_reps = calculate_twidth(
-        cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, curve=curve
+        cn, tfs_col=tfs_col, rs_col=rs_col, per_cell=per_cell, query2=query2, curve=curve, cell_col=cell_col
     )
     ax = plot_cell_variability(time_bins, pct_reps, popt,
                                left_time, right_time, t_width,

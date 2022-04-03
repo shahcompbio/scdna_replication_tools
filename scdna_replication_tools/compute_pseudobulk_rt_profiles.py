@@ -13,18 +13,13 @@ def get_args():
     return p.parse_args()
 
 
-def calc_population_rt(cn, input_col, output_col, time_col='rt_hours'):
+def calc_population_rt(cn, input_col, output_col, time_col='rt_hours', chr_col='chr', start_col='start'):
     pop_cn = []
-    for (chrom, start, end), loci_cn in cn.groupby(['chr', 'start', 'end']):
-        width = loci_cn.width.values[0]
-        gc = loci_cn.gc.values[0]
-        mapp = loci_cn.map.values[0]
+    for (chrom, start), loci_cn in cn.groupby([chr_col, start_col]):
         averagee = np.mean(loci_cn[input_col].values)
 
         temp_df = pd.DataFrame({
-            'chr': [chrom], 'start': [start], 'end': [end],
-            'width': [width], output_col: [averagee],
-            'gc': [gc], 'map': [mapp]
+            chr_col: [chrom], start_col: [start], output_col: [averagee]
         })
         pop_cn.append(temp_df)
 
@@ -43,7 +38,7 @@ def calc_population_rt(cn, input_col, output_col, time_col='rt_hours'):
     return pop_cn
 
 
-def compute_pseudobulk_rt_profiles(cn, input_col, output_col='pseduobulk', time_col='hours', clone_col='clone_id'):
+def compute_pseudobulk_rt_profiles(cn, input_col, output_col='pseduobulk', time_col='hours', clone_col='clone_id', chr_col='chr', start_col='start'):
     '''
     Compute population- and clone-level pseduobulk replication timing profiles
 
@@ -58,17 +53,17 @@ def compute_pseudobulk_rt_profiles(cn, input_col, output_col='pseduobulk', time_
     '''
     temp_output_col = str(output_col) + '_' + str(input_col)
     temp_time_col = str(output_col) + '_' + str(time_col)
-    bulk_cn = calc_population_rt(cn, input_col=input_col, output_col=temp_output_col, time_col=temp_time_col)
+    bulk_cn = calc_population_rt(cn, input_col=input_col, output_col=temp_output_col, time_col=temp_time_col, chr_col='chr', start_col='start')
 
     if clone_col is not None:
         for clone_id, clone_cn in cn.groupby('clone_id'):
             # compute pseudobulk for this clone
             temp_output_col = '{}_clone{}_{}'.format(output_col, clone_id, input_col)
             temp_time_col = '{}_clone{}_{}'.format(output_col, clone_id, time_col)
-            temp_cn = calc_population_rt(clone_cn, input_col=input_col, output_col=temp_output_col, time_col=temp_time_col)
+            temp_cn = calc_population_rt(clone_cn, input_col=input_col, output_col=temp_output_col, time_col=temp_time_col, chr_col='chr', start_col='start')
             
             # merge clone pseudobulk results with previous results
-            temp_cn = temp_cn[['chr', 'start', 'end', 'width', temp_output_col, temp_time_col]]
+            temp_cn = temp_cn[['chr', 'start', temp_output_col, temp_time_col]]
             bulk_cn = pd.merge(bulk_cn, temp_cn)
 
     return bulk_cn

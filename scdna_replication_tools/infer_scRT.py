@@ -182,7 +182,8 @@ class scRT:
 
 
     def compute_pseudobulk_rt_profiles(self, output_col='pseduobulk', time_col='hours'):
-        self.bulk_cn = compute_pseudobulk_rt_profiles(self.cn_s, self.rv_col, output_col=output_col, time_col=time_col, clone_col=self.clone_col)
+        self.bulk_cn = compute_pseudobulk_rt_profiles(self.cn_s, self.rv_col, output_col=output_col, time_col=time_col, 
+                                                      clone_col=self.clone_col, chr_col=self.chr_col, start_col=self.start_col)
         return self.bulk_cn
 
 
@@ -191,7 +192,7 @@ class scRT:
         cn = pd.merge(self.cn_s, self.bulk_cn)
         cn = compute_time_from_scheduled_column(cn, pseudobulk_col=pseudobulk_col,
                                                 frac_rt_col=self.frac_rt_col, tfs_col=tfs_col)
-        return calculate_twidth(cn, tfs_col=tfs_col, rs_col=self.rs_col, per_cell=per_cell, query2=query2, curve=curve)
+        return calculate_twidth(cn, tfs_col=tfs_col, rs_col=self.rs_col, cell_col=self.cell_col, per_cell=per_cell, query2=query2, curve=curve)
 
 
 # if run as a script, only infer scRT profiles
