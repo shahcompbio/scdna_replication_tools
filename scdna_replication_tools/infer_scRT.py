@@ -9,6 +9,7 @@ from scdna_replication_tools.binarize_rt_profiles import binarize_profiles
 from scdna_replication_tools.compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from scdna_replication_tools.calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
 from scdna_replication_tools.cncluster import kmeans_cluster
+from scdna_replication_tools.pyro_model import pyro_model
 from argparse import ArgumentParser
 
 
@@ -74,6 +75,34 @@ class scRT:
             self.cn_s = self.infer_clone_level()
         elif level=='bulk':
             self.cn_s = self.infer_bulk_level()
+        elif level=='pyro':
+            self.cn_s = self.infer_pyro_model()
+
+        return self.cn_s
+
+
+    def infer_pyro_model(self):
+        # run clustering if no clones are included in G1 input
+        if self.clone_col is None:
+            clusters = kmeans_cluster(self.cn_g1)
+            self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
+            self.clone_col = 'cluster_id'
+
+        # compute conesensus clone profiles
+        self.clone_profiles = compute_consensus_clone_profiles(
+            self.cn_g1, self.assign_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
+
+        # assign S-phase cells to clones
+        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.assign_col, clone_col=self.clone_col,
+                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
+
+        # run pyro model to get replication timing states
+        self.cn_s, self.cn_g1 = pyro_model(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+                                           clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col,
+                                           chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
+                                           rs_col=self.rs_col, frac_rt_col=self.frac_rt_col)
 
         return self.cn_s
 

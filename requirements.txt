@@ -107,6 +107,7 @@ numexpr==2.7.3
 numpy==1.21.4
 oauthlib==3.1.0
 openapi-codec==1.3.2
+opt-einsum==3.3.0
 packaging==20.3
 pandas==1.3.4
 pandocfilters==1.4.3
@@ -138,6 +139,8 @@ pypeliner==0.5.24
 pyranges==0.0.113
 pyranges-db==0.0.7
 pyrle==0.0.33
+pyro-api==0.1.2
+pyro-ppl==1.8.1
 pyrsistent==0.17.3
 pysam==0.18.0
 pytest==6.2.5
@@ -154,7 +157,7 @@ rlipython==0.1.2
 ruptures==1.1.6
 saltant-py==0.4.0
 scandir==1.9.0
--e git+ssh://git@github.com/shahcompbio/scdna_replication_tools.git@b91eb1318038a37617463ef946709c5501c084c9#egg=scdna_replication_tools
+-e git+ssh://git@github.com/shahcompbio/scdna_replication_tools.git@7b3078a3624c01f107b12b18c9d2dd1cca9443a0#egg=scdna_replication_tools
 scikit-learn==0.24.1
 scipy==1.6.1
 seaborn==0.11.1
@@ -177,8 +180,11 @@ terminado==0.9.3
 testpath==0.4.4
 threadpoolctl==2.1.0
 toml==0.10.2
+torch==1.11.0+cpu
+torchaudio==0.11.0+cpu
+torchvision==0.12.0+cpu
 tornado==6.1
-tqdm==4.31.1
+tqdm==4.64.0
 traitlets==4.3.3
 typed-ast==1.4.3
 typing-extensions==3.7.4.3
