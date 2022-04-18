@@ -9,7 +9,7 @@ from scdna_replication_tools.binarize_rt_profiles import binarize_profiles
 from scdna_replication_tools.compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from scdna_replication_tools.calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
 from scdna_replication_tools.cncluster import kmeans_cluster
-from scdna_replication_tools.pyro_model import pyro_model
+from scdna_replication_tools.pyro_model import pyro_infer_scRT
 from argparse import ArgumentParser
 
 
@@ -24,7 +24,7 @@ def get_args():
 class scRT:
     def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id', ploidy_col='ploidy',
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
-                 rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id',
+                 rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
@@ -46,6 +46,7 @@ class scRT:
         self.start_col = start_col
         self.gc_col = gc_col
         self.ploidy_col = ploidy_col
+        self.rt_prior_col = rt_prior_col
 
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
@@ -99,12 +100,13 @@ class scRT:
                                        cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
 
         # run pyro model to get replication timing states
-        pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+        pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col)
         somatic_CN_prob_df, RT_state_prob_df = pyro_model.run_pyro_model()
-        self.cn_s, self.cn_g1 = pyro_model.process_output()
+
+        # self.cn_s, self.cn_g1 = pyro_model.process_output()
 
         return self.cn_s
 

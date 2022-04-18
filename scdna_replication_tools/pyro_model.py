@@ -36,54 +36,59 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state',
                  rs_col='rt_state', frac_rt_col='frac_rt',
                  learning_rate=0.05, max_iter=400, rel_tol=5e-5,
-                 cuda=False, seed=0, num_states=13):
-    '''
-    initialise the pyro_infer_scRT object
-    :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
-    :param cn_g1: long-form dataframe containing copy number and read count information from G1-phase cells. (pandas.DataFrame)
-    :param input_col: column containing read count input. (str)
-    :param gc_col: column for gc content of each bin. (str)
-    :param rt_prior_col: column RepliSeq-determined replication timing values to be used as a prior. (str)
-    :param clone_col: column for clone ID of each cell. (str)
-    :param cell_col: column for cell ID of each cell. (str)
-    :param library_col: column for library ID of each cell. (str)
-    :param chr_col: column for chromosome of each bin. (str)
-    :param start_col: column for start position of each bin. (str)
-    :param cn_state_col: column for the HMMcopy-determined somatic copy number state of each bin; only needs to be present in cn_g1. (str)
-    :param rs_col: output column added containing the replication state of each bin for S-phase cells. (str)
-    :param frac_rt_col: column added containing the fraction of replciated bins for each S-phase cell. (str)
-    :param learning_rate: learning rate of Adam optimizer. (float)
-    :param max_iter: max number of iterations of elbo optimization during inference. (int)
-    :param rel_tol: when the relative change in elbo drops to rel_tol, stop inference. (float)
-    :param cuda: use cuda tensor type. (bool)
-    :param seed: random number generator seed. (int)
-    :param num_states: number of integer copy number states to include in the model, values range from 0 to num_states-1. (int)
-    '''
-    self.cn_s = cn_s
-    self.cn_g1 = cn_g1
+                 cuda=False, seed=0, num_states=13, gc0=0, gc1=1.3, A=5):
+        '''
+        initialise the pyro_infer_scRT object
+        :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
+        :param cn_g1: long-form dataframe containing copy number and read count information from G1-phase cells. (pandas.DataFrame)
+        :param input_col: column containing read count input. (str)
+        :param gc_col: column for gc content of each bin. (str)
+        :param rt_prior_col: column RepliSeq-determined replication timing values to be used as a prior. (str)
+        :param clone_col: column for clone ID of each cell. (str)
+        :param cell_col: column for cell ID of each cell. (str)
+        :param library_col: column for library ID of each cell. (str)
+        :param chr_col: column for chromosome of each bin. (str)
+        :param start_col: column for start position of each bin. (str)
+        :param cn_state_col: column for the HMMcopy-determined somatic copy number state of each bin; only needs to be present in cn_g1. (str)
+        :param rs_col: output column added containing the replication state of each bin for S-phase cells. (str)
+        :param frac_rt_col: column added containing the fraction of replciated bins for each S-phase cell. (str)
+        :param learning_rate: learning rate of Adam optimizer. (float)
+        :param max_iter: max number of iterations of elbo optimization during inference. (int)
+        :param rel_tol: when the relative change in elbo drops to rel_tol, stop inference. (float)
+        :param cuda: use cuda tensor type. (bool)
+        :param seed: random number generator seed. (int)
+        :param num_states: number of integer copy number states to include in the model, values range from 0 to num_states-1. (int)
+        :param gc0: prior for gc bias y-intercept parameter. (float)
+        :param gc1: prior for gc bias slope parameter. (float)
+        :param A: prior for per-cell replication stochasticity. (float)
+        '''
+        self.cn_s = cn_s
+        self.cn_g1 = cn_g1
 
-    self.input_col = input_col
-    self.gc_col = gc_col
-    self.rt_prior_col = rt_prior_col
-    self.clone_col = clone_col
-    self.cell_col = cell_col
-    self.library_col = library_col
-    self.chr_col = chr_col
-    self.start_col = start_col
-    self.cn_state_col = cn_state_col
+        self.input_col = input_col
+        self.gc_col = gc_col
+        self.rt_prior_col = rt_prior_col
+        self.clone_col = clone_col
+        self.cell_col = cell_col
+        self.library_col = library_col
+        self.chr_col = chr_col
+        self.start_col = start_col
+        self.cn_state_col = cn_state_col
 
-    self.rs_col = rs_col
-    self.frac_rt_col = frac_rt_col
+        self.rs_col = rs_col
+        self.frac_rt_col = frac_rt_col
 
-    self.anneal_rate = anneal_rate
-    self.learning_rate = learning_rate
-    self.max_iter = max_iter
-    self.rel_tol = rel_tol
-    self.cuda = cuda
-    self.max_temp = max_temp
-    self.min_temp = min_temp
+        self.learning_rate = learning_rate
+        self.max_iter = max_iter
+        self.rel_tol = rel_tol
+        self.cuda = cuda
+        self.seed = seed
 
-    self.map_estimates = None
+        self.gc0_prior = gc0
+        self.gc1_prior = gc1
+        self.A_prior = A
+
+        self.map_estimates = None
 
 
     def process_input_data(self):
@@ -121,8 +126,8 @@ class pyro_infer_scRT():
 
         assert cn_s_reads.shape[1] == gc_profile.shape[0] == rt_prior_profile.shape[0]
 
-        gc_profile = torch.tensor(gc_profile.values).unsqueeze(-1).to(torch.float32)
-        rt_prior_profile = torch.tensor(rt_prior_profile.values).unsqueeze(-1).to(torch.float32)
+        gc_profile = torch.tensor(gc_profile[self.gc_col].values).unsqueeze(-1).to(torch.float32)
+        rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
 
         rt_prior_profile = self.convert_rt_prior_units(rt_prior_profile)
 
@@ -227,19 +232,16 @@ class pyro_infer_scRT():
 
         cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile = self.process_input_data()
 
-        # Assign S-phase cells to best G1-phase matching cell
+        # TODO: Assign S-phase cells to best G1-phase matching cell
 
 
-        # fit GC params using G1-phase cells
+        # TODO: fit GC params using G1-phase cells
 
 
-        # split cn_s and cn_g1 into read_profiles, gc_profile, rt_profile
+        logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
+        logging.info('read_profiles data type: {}'.format(cn_s_reads.dtype))
 
-
-        logging.info('read_profiles after loading data: {}'.format(read_profiles.shape))
-        logging.info('read_profiles data type: {}'.format(read_profiles.dtype))
-
-        num_observations = float(read_profiles.shape[0] * read_profiles.shape[1])
+        num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
         pyro.set_rng_seed(self.seed)
         pyro.clear_param_store()
         pyro.enable_validation(__debug__)
@@ -252,7 +254,7 @@ class pyro_infer_scRT():
         print('Start Inference.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi.step(cn_s_reads, gc_profile, rt_prior_profile, gc0, gc1, A, self.num_states)
+            loss = svi.step(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
 
             if i >= 1:
                 loss_diff = abs((losses[-1] - loss) / losses[-1])
@@ -263,7 +265,7 @@ class pyro_infer_scRT():
             losses.append(loss)
             print('.' if i % 200 else '\n', end='')
 
-        map_estimates = global_guide(read_profiles, gc_profile, rt_profile, gc0, gc1, A, self.num_states)
+        map_estimates = global_guide(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
 
         # record parameters for CN and RT states --> store as DFs
         somatic_CN_prob = map_estimates['expose_somatic_CN']
@@ -274,5 +276,11 @@ class pyro_infer_scRT():
 
         # store other parameters
         self.map_estimates = map_estimates
+        print(map_estimates)
+
+        print(somatic_CN_prob.head())
+        print(somatic_CN_prob.shape)
+        print(RT_state_prob.head())
+        print(RT_state_prob.shape)
         
         return somatic_CN_prob_df, RT_state_prob_df
