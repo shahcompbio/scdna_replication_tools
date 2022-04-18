@@ -84,6 +84,7 @@ class pyro_infer_scRT():
         self.cuda = cuda
         self.seed = seed
 
+        self.num_states = num_states
         self.gc0_prior = gc0
         self.gc1_prior = gc1
         self.A_prior = A
