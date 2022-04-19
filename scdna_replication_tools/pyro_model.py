@@ -163,7 +163,7 @@ class pyro_infer_scRT():
         # scale each cell's read count so that it sums to 1 million reads
         # this is necessary because multinomial sampling with different number of samples per cell
         # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
-        F = 1E6
+        F = 1000000
         read_profiles = torch.reshape(read_profiles.reshape(num_cells, num_loci) * F / torch.sum(read_profiles, 1), (num_cells, num_loci, data_dim))
         
         # establish prior distributions
@@ -196,27 +196,30 @@ class pyro_infer_scRT():
             init_somatic_CN[:, :, 2] = prior_CN_prob
             somatic_CN = pyro.sample("expose_somatic_CN", dist.Categorical(init_somatic_CN).to_event(1))
 
+            total_CN = torch.zeros(num_cells, num_loci)
+            biased_CN = torch.zeros(num_cells, num_loci)
 
-        with pyro.plate("cells", num_cells):
-            with pyro.plate("loci", num_loci):
+        
+        for i in pyro.plate("cells", num_cells):
+            for j in pyro.plate("loci", num_loci):
                 # compute the probability of each bin being replicated for this cell given
                 # probs_A, probs_bulk_RT, and probs_s_times
-                p_rep = 1 / (1 + torch.exp(-probs_A.reshape(-1, 1) * (probs_bulk_RT - (1 - torch.abs(probs_s_times.reshape(-1, 1))))))
+                p_rep = 1 / (1 + torch.exp(-probs_A[i] * (probs_bulk_RT[j] - (1 - torch.abs(probs_s_times[i])))))
 
-                replicated = pyro.sample("expose_rt_state", dist.Binomial(1, p_rep))
+                replicated = pyro.sample("expose_rt_state_{i}_{j}".format(i=i, j=j), dist.Binomial(1, p_rep))
 
-                total_CN = somatic_CN * (1 + replicated)
+                total_CN[i, j] = somatic_CN[i, j] * (1 + replicated)
 
                 # add gc bias to the total CN
                 # Is a simple linear model sufficient here?
-                biased_CN = total_CN * ((gc_profile * probs_gc[1]) + probs_gc[0])
+                biased_CN[i, j] = total_CN[i, j] * ((gc_profile[j] * probs_gc[1]) + probs_gc[0])
 
-                # add some random noise to the GC-biased copy number
-                # This doesn't seem necessary for now but can add back later
-                # noisy_CN = pyro.sample("noisy_CN", dist.Gamma(biased_CN * probs_sigma1.reshape(-1, 1), 1/probs_sigma1.reshape(-1, 1)))
+            # add some random noise to the GC-biased copy number
+            # This doesn't seem necessary for now but can add back later
+            # noisy_CN = pyro.sample("noisy_CN", dist.Gamma(biased_CN * probs_sigma1.reshape(-1, 1), 1/probs_sigma1.reshape(-1, 1)))
 
-                # draw true read count from multinomial distribution
-                pyro.sample("read_count", dist.Multinomial(F, biased_CN), obs=read_profiles)
+            # draw true read count from multinomial distribution
+            pyro.sample("read_count_{i}".format(i=i), dist.Multinomial(F, biased_CN[i]), obs=read_profiles[i])
 
 
     def run_pyro_model(self):
@@ -252,7 +255,7 @@ class pyro_infer_scRT():
         svi = SVI(model, global_guide, optim, loss=elbo)
 
         # start inference
-        print('Start Inference.')
+        logging.info('Start Inference.')
         losses = []
         for i in range(self.max_iter):
             loss = svi.step(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
@@ -260,11 +263,11 @@ class pyro_infer_scRT():
             if i >= 1:
                 loss_diff = abs((losses[-1] - loss) / losses[-1])
                 if loss_diff < self.rel_tol:
-                    print('ELBO converged at iteration ' + str(i))
+                    logging.info('ELBO converged at iteration ' + str(i))
                     break
 
             losses.append(loss)
-            print('.' if i % 200 else '\n', end='')
+            logging.info('.' if i % 200 else '\n', end='')
 
         map_estimates = global_guide(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
 
@@ -277,11 +280,11 @@ class pyro_infer_scRT():
 
         # store other parameters
         self.map_estimates = map_estimates
-        print(map_estimates)
+        logging.info(map_estimates)
 
-        print(somatic_CN_prob.head())
-        print(somatic_CN_prob.shape)
-        print(RT_state_prob.head())
-        print(RT_state_prob.shape)
+        logging.info(somatic_CN_prob.head())
+        logging.info(somatic_CN_prob.shape)
+        logging.info(RT_state_prob.head())
+        logging.info(RT_state_prob.shape)
         
         return somatic_CN_prob_df, RT_state_prob_df
