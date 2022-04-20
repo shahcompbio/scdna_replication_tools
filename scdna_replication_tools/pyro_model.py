@@ -225,45 +225,78 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_G1(self, read_profiles, gc_profile, gc0, gc1, num_states, include_prior=True, prior_CN_prob=0.95):
+    def model_G1(self, read_profiles, gc_profile, gc0, gc1, num_states, include_prior=True, prior_CN_prob=0.99):
         with ignore_jit_warnings():
-            num_loci, num_cells, data_dim = map(int, read_profiles.shape)
+            num_cells, num_loci = map(int, read_profiles.shape)
             assert num_loci == gc_profile.shape[0]
 
         # scale each cell's read count so that it sums to 1 million reads
         # this is necessary because multinomial sampling with different number of samples per cell
         # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
-        F = 1000000
-        read_profiles = torch.reshape(read_profiles.reshape(num_loci, num_cells) * F / torch.sum(read_profiles, 0).reshape(1, -1), (num_loci, num_cells, data_dim))
+        F = int(1e6)
+        read_profiles = read_profiles * F / torch.sum(read_profiles, 1).reshape(-1, 1)
+        gc_profile = gc_profile.reshape(1, -1)
+        
+        # establish prior distributions
+        with poutine.mask(mask=include_prior):
+            # priors on what the gc bias coefficients should look like        
+            gc_means = pyro.sample('gc_means', dist.Normal(torch.tensor([gc0, gc1]), 1).to_event(1))
+            gc_stds = pyro.sample('gc_stds', dist.HalfNormal(torch.ones(2)*0.5, 0.1).to_event(1))
+        
+            # TODO: set values for init_somatic_CN that reflect each S-phase cell's closest G1-phase cell
+            # the diploid (CN=2) state is currently set to 90% for all bins
+            init_somatic_CN = torch.ones(num_cells, num_loci, num_states) * ((1 - prior_CN_prob) / (num_states - 1))
+            init_somatic_CN[:, :, 2] = prior_CN_prob
+        
+        # probility of each state appearing for each bin follows a Dirichlet distribution
+        somatic_CN_prob = pyro.sample('expose_somatic_CN_prob', dist.Dirichlet(init_somatic_CN).to_event(2))
+        # draw somatic CN state from categorical
+        somatic_CN = pyro.sample("somatic_CN", dist.Categorical(somatic_CN_prob).to_event(2))
+        
+        # add gc bias to the total CN
+        # Is a simple linear model sufficient here?
+        gc_values = pyro.sample("expose_gc_values", dist.Normal(gc_means, gc_stds).to_event(1))
+        biased_CN = somatic_CN * ((gc_profile * gc_values[1]) + gc_values[0])
+        biased_CN = biased_CN.reshape(num_cells, num_loci)
+
+        # draw true read count from multinomial distribution
+        pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False).to_event(1), obs=read_profiles)
+
+
+    def model_4(self, read_profiles, gc_profile, rt_profile, gc0, gc1, A, num_states, include_prior=True, prior_CN_prob=0.95):
+        with ignore_jit_warnings():
+            num_cells, num_loci = map(int, read_profiles.shape)
+            assert num_loci == gc_profile.shape[0]
+
+        # scale each cell's read count so that it sums to 1 million reads
+        # this is necessary because multinomial sampling with different number of samples per cell
+        # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
+        F = int(1e6)
+        read_profiles = read_profiles * F / torch.sum(read_profiles, 1).reshape(-1, 1)
         gc_profile = gc_profile.reshape(1, -1)
 
         # establish prior distributions
         with poutine.mask(mask=include_prior):
             # priors on what the gc bias coefficients should look like
             probs_gc = pyro.param('expose_gc', torch.tensor([gc0, gc1]))
-
+        
             # TODO: set values for init_somatic_CN that reflect each S-phase cell's closest G1-phase cell
             # the diploid (CN=2) state is currently set to 90% for all bins
-            init_somatic_CN = torch.ones(num_loci, num_cells, num_states) * ((1 - prior_CN_prob) / (num_states - 1))
+            init_somatic_CN = torch.ones(num_cells, num_loci, num_states) * ((1 - prior_CN_prob) / (num_states - 1))
             init_somatic_CN[:, :, 2] = prior_CN_prob
 
-        cell_plate = pyro.plate("cells", num_cells)
-        with cell_plate:
-            # draw a probability for each CN state from dirichlet
-            somatic_CN_prob = pyro.sample('expose_somatic_CN_prob', dist.Dirichlet(init_somatic_CN))
-            # draw somatic CN state from categorical
-            somatic_CN = pyro.sample("somatic_CN", dist.Categorical(somatic_CN_prob))
 
-            # assume that each cell is its own index when matchinig to CN
-            G1_cell_assign = torch.arange(num_cells)
-            somatic_CN_profile = Vindex(somatic_CN)[:, G1_cell_assign]
+        somatic_CN_prob = pyro.sample('expose_somatic_CN_prob', dist.Dirichlet(init_somatic_CN).to_event(2))
+        # draw somatic CN state from categorical
+        somatic_CN = pyro.sample("somatic_CN", dist.Categorical(somatic_CN_prob).to_event(2))
 
-            # add gc bias to the total CN
-            # Is a simple linear model sufficient here?
-            biased_CN = somatic_CN_profile * ((gc_profile * probs_gc[1]) + probs_gc[0])
+        # add gc bias to the total CN
+        biased_CN = somatic_CN * ((gc_profile * probs_gc[1]) + probs_gc[0])
+        biased_CN = biased_CN.reshape(num_cells, num_loci)
 
-            # draw true read count from multinomial distribution
-            pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False), obs=read_profiles)
+        # draw true read count from multinomial distribution
+        pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False).to_event(1), obs=read_profiles)
+
 
 
 
