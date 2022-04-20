@@ -155,7 +155,6 @@ class pyro_infer_scRT():
 
     @config_enumerate
     def model_0(self, read_profiles, gc_profile, rt_profile, gc0, gc1, A, num_states, include_prior=True, prior_CN_prob=0.95):
-
         with ignore_jit_warnings():
             num_cells, num_loci, data_dim = map(int, read_profiles.shape)
             assert num_loci == gc_profile.shape[0]
@@ -165,61 +164,64 @@ class pyro_infer_scRT():
         # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
         F = 1000000
         read_profiles = torch.reshape(read_profiles.reshape(num_cells, num_loci) * F / torch.sum(read_profiles, 1), (num_cells, num_loci, data_dim))
-        
+
         # establish prior distributions
         with poutine.mask(mask=include_prior):
-
-            # time in S-phase should be drawn from a Beta distribution with a bell-shaped
-            # curve centered around 0.5
-            probs_s_times = pyro.sample("expose_s_times",
-                                        dist.Beta(torch.ones(num_cells).fill_(2.0),
-                                                  torch.ones(num_cells).fill_(2.0))
-                                        .to_event(1))
-
-            # A controls the "noise" of replication for each cell
-            init_A = torch.ones(num_cells).fill_(A)
-            probs_A = pyro.param('expose_A', init_A, constraint=constraints.greater_than(0))
-
-            # bulk replication timing value of each bin (ranging from 0-1)
-            probs_bulk_RT = pyro.param('expose_bulk_RT', rt_profile, constraint=constraints.interval(0, 1))
-
             # priors on what the gc bias coefficients should look like
             probs_gc = pyro.param('expose_gc', torch.tensor([gc0, gc1]))
-
-            # prior for the cell-specific noise coefficient
-            # init_sigma1 = torch.ones(num_cells).fill_(sigma1)
-            # probs_sigma1 = pyro.param('expose_sigma1', init_sigma1, constraint=constraints.greater_than(0))
-
+        
             # TODO: set values for init_somatic_CN that reflect each S-phase cell's closest G1-phase cell
             # the diploid (CN=2) state is currently set to 90% for all bins
             init_somatic_CN = torch.ones(num_cells, num_loci, num_states) * ((1 - prior_CN_prob) / (num_states - 1))
             init_somatic_CN[:, :, 2] = prior_CN_prob
             somatic_CN = pyro.sample("expose_somatic_CN", dist.Categorical(init_somatic_CN).to_event(1))
-
-            total_CN = torch.zeros(num_cells, num_loci)
-            biased_CN = torch.zeros(num_cells, num_loci)
-
+            somatic_CN = somatic_CN.reshape(num_cells, num_loci, 1)
+            # print('init_somatic_CN shape', init_somatic_CN.shape)
+            # print('somatic_CN shape', somatic_CN.shape)
         
-        for i in pyro.plate("cells", num_cells):
-            for j in pyro.plate("loci", num_loci):
-                # compute the probability of each bin being replicated for this cell given
-                # probs_A, probs_bulk_RT, and probs_s_times
-                p_rep = 1 / (1 + torch.exp(-probs_A[i] * (probs_bulk_RT[j] - (1 - torch.abs(probs_s_times[i])))))
+        with pyro.plate("loci", num_loci):
+            # bulk replication timing value of each bin (ranging from 0-1)
+            bulk_RT_means = pyro.param('bulk_RT_means', rt_profile, constraint=constraints.interval(0, 1))
+            probs_bulk_RT = pyro.param('expose_bulk_RT', dist.Normal(bulk_RT_means, 0.1))
 
-                replicated = pyro.sample("expose_rt_state_{i}_{j}".format(i=i, j=j), dist.Binomial(1, p_rep))
+        with pyro.plate("cells", num_cells):
+            # time in S-phase should be drawn from a Beta distribution with a bell-shaped
+            # curve centered around 0.5
+            probs_s_times = pyro.sample("expose_s_times",
+                                        dist.Beta(torch.ones(num_cells).fill_(2.0),
+                                                  torch.ones(num_cells).fill_(2.0)))
 
-                total_CN[i, j] = somatic_CN[i, j] * (1 + replicated)
+            # A controls the "noise" of replication for each cell
+            init_A = torch.ones(num_cells).fill_(A)
+            probs_A = pyro.param('expose_A', init_A, constraint=constraints.greater_than(0))
+            
+        # compute the probability of each bin being replicated for this cell given
+        # probs_A, probs_bulk_RT, and probs_s_times
+        # print('probs_A shape', probs_A.reshape(-1, 1, 1).shape)
+        # print('probs_bulk_RT shape', probs_bulk_RT.reshape(1, -1, 1).shape)
+        # print('probs_s_times shape', probs_s_times.reshape(-1, 1, 1).shape)
+        p_rep = 1 / (1 + torch.exp(-probs_A.reshape(-1, 1, 1) * (probs_bulk_RT.reshape(1, -1, 1) - (1 - torch.abs(probs_s_times.reshape(-1, 1, 1))))))
 
-                # add gc bias to the total CN
-                # Is a simple linear model sufficient here?
-                biased_CN[i, j] = total_CN[i, j] * ((gc_profile[j] * probs_gc[1]) + probs_gc[0])
+        # print('p_rep shape', p_rep.shape)
 
-            # add some random noise to the GC-biased copy number
-            # This doesn't seem necessary for now but can add back later
-            # noisy_CN = pyro.sample("noisy_CN", dist.Gamma(biased_CN * probs_sigma1.reshape(-1, 1), 1/probs_sigma1.reshape(-1, 1)))
+        replicated = pyro.sample("expose_rt_state", dist.Binomial(1, p_rep))
 
-            # draw true read count from multinomial distribution
-            pyro.sample("read_count_{i}".format(i=i), dist.Multinomial(F, biased_CN[i]), obs=read_profiles[i])
+        # print('replicated shape', replicated.shape)
+        # print('somatic_CN shape', somatic_CN.shape)
+
+        total_CN = somatic_CN * (1 + replicated)
+        
+        # print('total_CN shape', total_CN.shape)
+        # print('gc_profile shape', gc_profile.shape)
+
+        # add gc bias to the total CN
+        # Is a simple linear model sufficient here?
+        biased_CN = total_CN * ((gc_profile * probs_gc[1]) + probs_gc[0])
+        
+        # print('biased_CN shape', biased_CN.shape)
+
+        # draw true read count from multinomial distribution
+        pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False), obs=read_profiles)
 
 
     def run_pyro_model(self):
