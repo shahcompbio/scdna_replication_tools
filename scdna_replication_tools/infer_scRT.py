@@ -104,9 +104,7 @@ class scRT:
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col)
-        somatic_CN_prob_df, RT_state_prob_df = pyro_model.run_pyro_model()
-
-        # self.cn_s, self.cn_g1 = pyro_model.process_output()
+        self.cn_g1, _, params = pyro_model.run_pyro_model()
 
         return self.cn_s
 

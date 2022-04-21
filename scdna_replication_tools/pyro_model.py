@@ -102,21 +102,21 @@ class pyro_infer_scRT():
         self.cn_s = self.cn_s[self.cn_s[self.input_col].notna()]
 
         # pivot to 2D matrix where each row is a unique cell, columns are loci
-        cn_g1_reads = self.cn_g1.pivot(index=[self.chr_col, self.start_col], columns=self.cell_col, values=self.input_col)
-        cn_g1_states = self.cn_g1.pivot(index=[self.chr_col, self.start_col], columns=self.cell_col, values=self.cn_state_col)
-        cn_s_reads = self.cn_s.pivot(index=[self.chr_col, self.start_col], columns=self.cell_col, values=self.input_col)
+        cn_g1_reads_df = self.cn_g1.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
+        cn_g1_states_df = self.cn_g1.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
+        cn_s_reads_df = self.cn_s.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
 
-        cn_g1_reads = cn_g1_reads.dropna()
-        cn_g1_states = cn_g1_states.dropna()
-        cn_s_reads = cn_s_reads.dropna()
+        cn_g1_reads_df = cn_g1_reads_df.dropna()
+        cn_g1_states_df = cn_g1_states_df.dropna()
+        cn_s_reads_df = cn_s_reads_df.dropna()
 
-        assert cn_g1_states.shape == cn_g1_reads.shape
-        assert cn_s_reads.shape[0] == cn_g1_reads.shape[0]
+        assert cn_g1_states_df.shape == cn_g1_reads_df.shape
+        assert cn_s_reads_df.shape[0] == cn_g1_reads_df.shape[0]
 
         # convert to tensor and unsqueeze the data dimension
-        cn_g1_reads = torch.tensor(cn_g1_reads.values).unsqueeze(-1).to(torch.float32)
-        cn_g1_states = torch.tensor(cn_g1_states.values).unsqueeze(-1).to(torch.float32)
-        cn_s_reads = torch.tensor(cn_s_reads.values).unsqueeze(-1).to(torch.float32)
+        cn_g1_reads = torch.tensor(cn_g1_reads_df.values).to(torch.float32)
+        cn_g1_states = torch.tensor(cn_g1_states_df.values).to(torch.float32)
+        cn_s_reads = torch.tensor(cn_s_reads_df.values).to(torch.float32)
 
         # TODO: get tensors for GC and RT profiles
         gc_profile = self.cn_s[[self.chr_col, self.start_col, self.gc_col]].drop_duplicates()
@@ -125,14 +125,14 @@ class pyro_infer_scRT():
         gc_profile = gc_profile.dropna()
         rt_prior_profile = rt_prior_profile.dropna()
 
-        assert cn_s_reads.shape[0] == gc_profile.shape[0] == rt_prior_profile.shape[0]
+        assert cn_s_reads.shape[1] == gc_profile.shape[0] == rt_prior_profile.shape[0]
 
         gc_profile = torch.tensor(gc_profile[self.gc_col].values).unsqueeze(-1).to(torch.float32)
         rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
 
         rt_prior_profile = self.convert_rt_prior_units(rt_prior_profile)
 
-        return cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile
+        return cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile
 
 
     def sort_by_cell_and_loci(self, cn):
@@ -154,7 +154,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_0(self, read_profiles, gc_profile, rt_profile, gc0, gc1, A, num_states, include_prior=True, prior_CN_prob=0.95):
+    def model_s(self, read_profiles, gc_profile, rt_profile, gc0, gc1, A, num_states, include_prior=True, prior_CN_prob=0.95):
         with ignore_jit_warnings():
             num_cells, num_loci, data_dim = map(int, read_profiles.shape)
             assert num_loci == gc_profile.shape[0]
@@ -162,7 +162,7 @@ class pyro_infer_scRT():
         # scale each cell's read count so that it sums to 1 million reads
         # this is necessary because multinomial sampling with different number of samples per cell
         # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
-        F = 1000000
+        F = int(1e6)
         read_profiles = torch.reshape(read_profiles.reshape(num_cells, num_loci) * F / torch.sum(read_profiles, 1), (num_cells, num_loci, data_dim))
 
         # establish prior distributions
@@ -240,8 +240,8 @@ class pyro_infer_scRT():
         # establish prior distributions
         with poutine.mask(mask=include_prior):
             # priors on what the gc bias coefficients should look like        
-            gc_means = pyro.sample('gc_means', dist.Normal(torch.tensor([gc0, gc1]), 1).to_event(1))
-            gc_stds = pyro.sample('gc_stds', dist.HalfNormal(torch.ones(2)*0.5, 0.1).to_event(1))
+            gc_means = pyro.sample('expose_gc_means', dist.Normal(torch.tensor([gc0, gc1]), 1).to_event(1))
+            gc_stds = pyro.sample('expose_gc_stds', dist.HalfNormal(torch.ones(2)*0.5, 0.1).to_event(1))
         
             # TODO: set values for init_somatic_CN that reflect each S-phase cell's closest G1-phase cell
             # the diploid (CN=2) state is currently set to 90% for all bins
@@ -307,13 +307,13 @@ class pyro_infer_scRT():
         logging.info('Loading data')
 
         logging.info('-' * 40)
-        model = self.model_0
+        model = self.model_s
         model_g1 = self.model_G1
 
         optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
         elbo = TraceEnum_ELBO(max_plate_nesting=2)
 
-        cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile = self.process_input_data()
+        cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile = self.process_input_data()
 
         # TODO: Assign S-phase cells to best G1-phase matching cell
 
@@ -337,10 +337,21 @@ class pyro_infer_scRT():
                     break
 
             losses.append(loss)
-            logging.info('.' if i % 200 else '\n', end='')
+            logging.info('step: {}, loss: {}'.format(i, loss))
 
         map_estimates = guide_g1(cn_g1_reads, gc_profile, self.gc0_prior, self.gc1_prior, self.num_states)
 
+        # extract GC params
+        gc0_mean_fit, gc1_mean_fit = map_estimates['expose_gc_means'].detach().numpy()
+        gc0_std_fit, gc1_std_fit = map_estimates['expose_gc_stds'].detach().numpy()
+        gc0_value_fit, gc1_value_fit = map_estimates['expose_gc_values'].detach().numpy()
+
+        # extract CN states from G1-phase cells
+        cn_g1_states_out_probs = np.array(map_estimates['expose_somatic_CN_prob'].detach().numpy())
+        cn_g1_states_out = np.argmax(cn_g1_states_out_probs, axis=2)
+        cn_g1_states_out_df = pd.DataFrame(data=cn_g1_states_out, index=cn_g1_states_df.index, columns=cn_g1_states_df.columns)
+
+        merged_g1_output = pd.merge(self.cn_g1, cn_g1_states_out_df.melt(ignore_index=False, value_name='assigned_state').reset_index())
 
         # # Now run the model for S-phase cells
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
@@ -388,4 +399,4 @@ class pyro_infer_scRT():
         # logging.info(RT_state_prob.head())
         # logging.info(RT_state_prob.shape)
         
-        return somatic_CN_prob_df, RT_state_prob_df
+        return merged_g1_output, self.cn_s, self.map_estimates
