@@ -311,7 +311,7 @@ class pyro_infer_scRT():
         model_g1 = self.model_G1
 
         optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
-        elbo = TraceEnum_ELBO(max_plate_nesting=2)
+        elbo = TraceEnum_ELBO(max_plate_nesting=1)
 
         cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_g1_reads, cn_g1_states, cn_s_reads, gc_profile, rt_prior_profile = self.process_input_data()
 
