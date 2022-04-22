@@ -154,74 +154,55 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, read_profiles, gc_profile, rt_profile, gc0, gc1, A, num_states, include_prior=True, prior_CN_prob=0.95):
+    def model_S(self, read_profiles, gc_profile, rt_profile, gc_means, gc_stds, A, num_states, include_prior=True, prior_CN_prob=0.99):
         with ignore_jit_warnings():
-            num_cells, num_loci, data_dim = map(int, read_profiles.shape)
+            num_cells, num_loci = map(int, read_profiles.shape)
             assert num_loci == gc_profile.shape[0]
 
         # scale each cell's read count so that it sums to 1 million reads
         # this is necessary because multinomial sampling with different number of samples per cell
         # is not currently supported by pyro https://github.com/pytorch/pytorch/issues/42407
         F = int(1e6)
-        read_profiles = torch.reshape(read_profiles.reshape(num_cells, num_loci) * F / torch.sum(read_profiles, 1), (num_cells, num_loci, data_dim))
-
+        read_profiles = read_profiles * F / torch.sum(read_profiles, 1).reshape(-1, 1)
+        gc_profile = gc_profile.reshape(1, -1)
+        
         # establish prior distributions
         with poutine.mask(mask=include_prior):
-            # priors on what the gc bias coefficients should look like
-            probs_gc = pyro.param('expose_gc', torch.tensor([gc0, gc1]))
-        
             # TODO: set values for init_somatic_CN that reflect each S-phase cell's closest G1-phase cell
             # the diploid (CN=2) state is currently set to 90% for all bins
             init_somatic_CN = torch.ones(num_cells, num_loci, num_states) * ((1 - prior_CN_prob) / (num_states - 1))
             init_somatic_CN[:, :, 2] = prior_CN_prob
-            somatic_CN = pyro.sample("expose_somatic_CN", dist.Categorical(init_somatic_CN).to_event(1))
-            somatic_CN = somatic_CN.reshape(num_cells, num_loci, 1)
-            # print('init_somatic_CN shape', init_somatic_CN.shape)
-            # print('somatic_CN shape', somatic_CN.shape)
-        
-        with pyro.plate("loci", num_loci):
-            # bulk replication timing value of each bin (ranging from 0-1)
-            bulk_RT_means = pyro.param('bulk_RT_means', rt_profile, constraint=constraints.interval(0, 1))
-            probs_bulk_RT = pyro.param('expose_bulk_RT', dist.Normal(bulk_RT_means, 0.1))
-
-        with pyro.plate("cells", num_cells):
+            
+            probs_A = pyro.sample('expose_A', dist.LogNormal(torch.ones(num_cells).fill_(A),
+                                                             torch.ones(num_cells).fill_(0.1)).to_event(1))
+            
             # time in S-phase should be drawn from a Beta distribution with a bell-shaped
             # curve centered around 0.5
             probs_s_times = pyro.sample("expose_s_times",
                                         dist.Beta(torch.ones(num_cells).fill_(2.0),
-                                                  torch.ones(num_cells).fill_(2.0)))
+                                                  torch.ones(num_cells).fill_(2.0)).to_event(1))
 
-            # A controls the "noise" of replication for each cell
-            init_A = torch.ones(num_cells).fill_(A)
-            probs_A = pyro.param('expose_A', init_A, constraint=constraints.greater_than(0))
-            
-        # compute the probability of each bin being replicated for this cell given
-        # probs_A, probs_bulk_RT, and probs_s_times
-        # print('probs_A shape', probs_A.reshape(-1, 1, 1).shape)
-        # print('probs_bulk_RT shape', probs_bulk_RT.reshape(1, -1, 1).shape)
-        # print('probs_s_times shape', probs_s_times.reshape(-1, 1, 1).shape)
-        p_rep = 1 / (1 + torch.exp(-probs_A.reshape(-1, 1, 1) * (probs_bulk_RT.reshape(1, -1, 1) - (1 - torch.abs(probs_s_times.reshape(-1, 1, 1))))))
-
-        # print('p_rep shape', p_rep.shape)
-
-        replicated = pyro.sample("expose_rt_state", dist.Binomial(1, p_rep))
-
-        # print('replicated shape', replicated.shape)
-        # print('somatic_CN shape', somatic_CN.shape)
-
+            probs_bulk_RT = pyro.sample('expose_bulk_RT', dist.Normal(rt_profile, 0.1).to_event(2))
+        
+        somatic_CN_prob = pyro.sample('expose_somatic_CN_prob', dist.Dirichlet(init_somatic_CN).to_event(2))
+        # draw somatic CN state from categorical
+        somatic_CN = pyro.sample("somatic_CN", dist.Categorical(somatic_CN_prob).to_event(2))
+        
+        p_rep = 1 / (1 + torch.exp(-probs_A.reshape(-1, 1) * (probs_bulk_RT.reshape(1, -1) - (1 - torch.abs(probs_s_times.reshape(-1, 1))))))
+        alphas = p_rep * 5 + 1
+        betas = (1 - p_rep) * 5 + 1
+        rt_state_probs = pyro.sample("expose_rt_state_prob", dist.Beta(alphas, betas).to_event(2))
+        replicated = pyro.sample("rt_state", dist.Bernoulli(rt_state_probs).to_event(2))
         total_CN = somatic_CN * (1 + replicated)
         
-        # print('total_CN shape', total_CN.shape)
-        # print('gc_profile shape', gc_profile.shape)
-
         # add gc bias to the total CN
         # Is a simple linear model sufficient here?
-        biased_CN = total_CN * ((gc_profile * probs_gc[1]) + probs_gc[0])
-        
-        # print('biased_CN shape', biased_CN.shape)
+        biased_CN = total_CN * ((gc_profile * gc_means[1]) + gc_means[0])
+        biased_CN = biased_CN.reshape(num_cells, num_loci)
 
         # draw true read count from multinomial distribution
-        pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False), obs=read_profiles)
+        pyro.sample("read_count", dist.Multinomial(total_count=F, probs=biased_CN, validate_args=False).to_event(1), obs=read_profiles)
+
 
 
     @config_enumerate
@@ -307,7 +288,7 @@ class pyro_infer_scRT():
         logging.info('Loading data')
 
         logging.info('-' * 40)
-        model = self.model_s
+        model_s = self.model_S
         model_g1 = self.model_G1
 
         optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
@@ -317,7 +298,6 @@ class pyro_infer_scRT():
 
         # TODO: Assign S-phase cells to best G1-phase matching cell
 
-
         # TODO: fit GC params using G1-phase cells
         guide_g1 = AutoDelta(poutine.block(model_g1, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         # elbo.loss(model_g1, config_enumerate(guide_g1, "parallel"), cn_g1_reads, gc_profile, self.gc0_prior, self.gc1_prior, self.num_states)
@@ -325,7 +305,7 @@ class pyro_infer_scRT():
         svi = SVI(model_g1, guide_g1, optim, loss=elbo)
 
         # start inference
-        logging.info('Start Inference.')
+        logging.info('Start inference for G1-phase cells.')
         losses = []
         for i in range(self.max_iter):
             loss = svi.step(cn_g1_reads, gc_profile, self.gc0_prior, self.gc1_prior, self.num_states)
@@ -339,64 +319,77 @@ class pyro_infer_scRT():
             losses.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
 
-        map_estimates = guide_g1(cn_g1_reads, gc_profile, self.gc0_prior, self.gc1_prior, self.num_states)
+        map_estimates_g1 = guide_g1(cn_g1_reads, gc_profile, self.gc0_prior, self.gc1_prior, self.num_states)
 
         # extract GC params
-        gc0_mean_fit, gc1_mean_fit = map_estimates['expose_gc_means'].detach().numpy()
-        gc0_std_fit, gc1_std_fit = map_estimates['expose_gc_stds'].detach().numpy()
-        gc0_value_fit, gc1_value_fit = map_estimates['expose_gc_values'].detach().numpy()
+        gc0_mean_fit, gc1_mean_fit = map_estimates_g1['expose_gc_means'].detach().numpy()
+        gc0_std_fit, gc1_std_fit = map_estimates_g1['expose_gc_stds'].detach().numpy()
+        gc0_value_fit, gc1_value_fit = map_estimates_g1['expose_gc_values'].detach().numpy()
 
         # extract CN states from G1-phase cells
-        cn_g1_states_out_probs = np.array(map_estimates['expose_somatic_CN_prob'].detach().numpy())
+        cn_g1_states_out_probs = np.array(map_estimates_g1['expose_somatic_CN_prob'].detach().numpy())
         cn_g1_states_out = np.argmax(cn_g1_states_out_probs, axis=2)
         cn_g1_states_out_df = pd.DataFrame(data=cn_g1_states_out, index=cn_g1_states_df.index, columns=cn_g1_states_df.columns)
 
-        merged_g1_output = pd.merge(self.cn_g1, cn_g1_states_out_df.melt(ignore_index=False, value_name='assigned_state').reset_index())
+        cn_g1_out = pd.merge(self.cn_g1, cn_g1_states_out_df.melt(ignore_index=False, value_name='assigned_state').reset_index())
 
         # # Now run the model for S-phase cells
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
         # logging.info('read_profiles data type: {}'.format(cn_s_reads.dtype))
 
-        # num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
-        # pyro.set_rng_seed(self.seed)
-        # pyro.clear_param_store()
-        # pyro.enable_validation(__debug__)
+        num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
+        pyro.set_rng_seed(self.seed)
+        pyro.clear_param_store()
+        pyro.enable_validation(__debug__)
 
-        # global_guide = AutoDelta(poutine.block(model, expose_fn=lambda msg: msg["name"].startswith("expose_")))
+        guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
+        optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
+        elbo_s = TraceEnum_ELBO(max_plate_nesting=1)
+        svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
-        # svi = SVI(model, global_guide, optim, loss=elbo)
+        # start inference
+        logging.info('Start inference for S-phase cells.')
+        losses = []
+        for i in range(self.max_iter):
+            loss = svi_s.step(cn_s_reads, gc_profile, rt_prior_profile, gc_means, gc_stds, self.A_prior, self.num_states)
 
-        # # start inference
-        # logging.info('Start Inference.')
-        # losses = []
-        # for i in range(self.max_iter):
-        #     loss = svi.step(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
+            if i >= 1:
+                loss_diff = abs((losses[-1] - loss) / losses[-1])
+                if loss_diff < self.rel_tol:
+                    logging.info('ELBO converged at iteration ' + str(i))
+                    break
 
-        #     if i >= 1:
-        #         loss_diff = abs((losses[-1] - loss) / losses[-1])
-        #         if loss_diff < self.rel_tol:
-        #             logging.info('ELBO converged at iteration ' + str(i))
-        #             break
+            losses.append(loss)
+            logging.info('step: {}, loss: {}'.format(i, loss))
 
-        #     losses.append(loss)
-        #     logging.info('.' if i % 200 else '\n', end='')
+        map_estimates_s = guide_s(cn_s_reads, gc_profile, rt_prior_profile, gc_means, gc_stds, self.A_prior, self.num_states)
 
-        # map_estimates = global_guide(cn_s_reads, gc_profile, rt_prior_profile, self.gc0_prior, self.gc1_prior, self.A_prior, self.num_states)
+        # add inferred CN and RT states to the S-phase output df
+        cn_s_state_out_probs = map_estimates_s['expose_somatic_CN_prob'].detach().numpy()
+        rt_state_probs = map_estimates_s['expose_rt_state_prob'].detach().numpy()
+        rt_state_probs_df = pd.DataFrame(rt_state_probs, index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        cn_states_argmax_df = pd.DataFrame(np.argmax(cn_s_state_out_probs, axis=2), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        cn_states_argmax_df = cn_states_argmax_df.melt(ignore_index=False, value_name='model_maxprob_cn_state').reset_index()
+        rt_state_probs_df = rt_state_probs_df.melt(ignore_index=False, value_name='model_prob_rt_state').reset_index()
+        cn_s_out = pd.merge(cn_s, cn_states_argmax_df)
+        cn_s_out = pd.merge(cn_s_out, rt_state_probs_df)
+        cn_s_out['model_maxprob_rt_state'] = cn_s_out['model_prob_rt_state'].apply(lambda x: 1 if x>0.5 else 0)
 
-        # # record parameters for CN and RT states --> store as DFs
-        # somatic_CN_prob = map_estimates['expose_somatic_CN']
-        # somatic_CN_prob_df = pd.DataFrame(somatic_CN_prob.data.numpy())
-
-        # RT_state_prob = map_estimates['expose_rt_state']
-        # RT_state_prob_df = pd.DataFrame(RT_state_prob.data.numpy())
-
-        # store other parameters
-        self.map_estimates = map_estimates
-        logging.info(map_estimates)
-
-        # logging.info(somatic_CN_prob.head())
-        # logging.info(somatic_CN_prob.shape)
-        # logging.info(RT_state_prob.head())
-        # logging.info(RT_state_prob.shape)
+        # add other inferred parameters to cn_s_out
+        s_times_out = pd.DataFrame(
+            map_estimates_s['expose_s_times'].detach().numpy(),
+            index=cn_s_reads_df.index, 
+            columns=['model_s_time']).reset_index()
+        As_out = pd.DataFrame(
+            map_estimates_s['expose_A'].detach().numpy(),
+            index=cn_s_reads_df.index, 
+            columns=['model_A']).reset_index()
+        bulk_rt_out = pd.DataFrame(
+            map_estimates_s['expose_bulk_RT'].detach().numpy(),
+            index=cn_s_reads_df.columns,
+            columns=['model_bulk_RT']).reset_index()
+        cn_s_out = pd.merge(cn_s_out, s_times_out)
+        cn_s_out = pd.merge(cn_s_out, As_out)
+        cn_s_out = pd.merge(cn_s_out, bulk_rt_out)
         
-        return merged_g1_output, self.cn_s, self.map_estimates
+        return cn_g1_out, cn_s_out
