@@ -52,6 +52,7 @@ entrypoints==0.3
 enum34==1.1.6
 fire==0.4.0
 funcsigs==1.0.2
+graphviz==0.20
 h5py==3.6.0
 hdbscan==0.8.27
 hmmlearn==0.2.5
@@ -157,7 +158,7 @@ rlipython==0.1.2
 ruptures==1.1.6
 saltant-py==0.4.0
 scandir==1.9.0
--e git+ssh://git@github.com/shahcompbio/scdna_replication_tools.git@7b3078a3624c01f107b12b18c9d2dd1cca9443a0#egg=scdna_replication_tools
+-e git+ssh://git@github.com/shahcompbio/scdna_replication_tools.git@cc095e8cd03fdc9931f7993bcbb1bd5570c9c153#egg=scdna_replication_tools
 scikit-learn==0.24.1
 scipy==1.6.1
 seaborn==0.11.1
