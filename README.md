@@ -3,9 +3,11 @@ Tools for assigning S-phase cells to clones and inferring single-cell replicatio
 
 ## Installation
 
-It is recommended that you install all prerequisites with pip in a virtual environment:
+It is recommended that you clone this repository and install all prerequisites with pip in a virtual environment:
 
 ```
+git clone git@github.com:shahcompbio/scdna_replication_tools.git
+cd scdna_replication_tools
 virtualenv venv
 source venv/bin/activate
 pip install numpy cython
