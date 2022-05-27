@@ -127,7 +127,7 @@ class pyro_infer_scRT():
 
         assert cn_s_reads.shape[0] == gc_profile.shape[0] == rt_prior_profile.shape[0]
 
-        gc_profile = torch.tensor(gc_profile[self.gc_col].values).unsqueeze(-1).to(torch.float32)
+        gc_profile = torch.tensor(gc_profile[self.gc_col].values).to(torch.float32)
         rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
 
         rt_prior_profile = self.convert_rt_prior_units(rt_prior_profile)
@@ -292,7 +292,7 @@ class pyro_infer_scRT():
             u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
 
             with pyro.plate('num_loci', num_loci):
-                
+
                 # copy number accounting for gc bias
                 gc_features = self.make_gc_features(gc_profile, poly_degree=poly_degree)
                 gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
@@ -302,13 +302,13 @@ class pyro_infer_scRT():
                 expected_reads = (u * biased_cn)
 
                 nb_p = expected_reads / (expected_reads + nb_r)
-                
+
                 if data is not None:
-                    obs = data[l]
+                    obs = data
                 else:
                     obs = None
-                
-                reads = pyro.sample('reads_{}'.format(l), dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
+
+                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
 
 
     def run_pyro_model(self):
@@ -322,7 +322,7 @@ class pyro_infer_scRT():
         model_g1 = self.model_g1
 
         optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
-        elbo = TraceEnum_ELBO(max_plate_nesting=2)
+        elbo = JitTraceEnum_ELBO(max_plate_nesting=2)
 
         cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, gc_profile, rt_prior_profile = self.process_input_data()
 
@@ -383,7 +383,7 @@ class pyro_infer_scRT():
 
         guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
-        elbo_s = TraceEnum_ELBO(max_plate_nesting=1)
+        elbo_s = JitTraceEnum_ELBO(max_plate_nesting=1)
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
         # guess the initial mean for u assuming that half the bins should be replicated
