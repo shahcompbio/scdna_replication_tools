@@ -36,7 +36,7 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state',
                  rs_col='rt_state', frac_rt_col='frac_rt',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                 cuda=False, seed=0, num_states=13):
+                 cuda=False, seed=0, num_states=13, poly_degree=4):
         '''
         initialise the pyro_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -82,6 +82,7 @@ class pyro_infer_scRT():
         self.cuda = cuda
         self.seed = seed
         self.num_states = num_states
+        self.poly_degree = poly_degree
 
 
     def process_input_data(self):
@@ -173,10 +174,10 @@ class pyro_infer_scRT():
         return cn_prior
 
 
-    def make_gc_features(self, x, poly_degree=4):
+    def make_gc_features(self, x):
         """Builds features i.e. a matrix with columns [x, x^2, x^3, x^4]."""
         x = x.unsqueeze(1)
-        return torch.cat([x ** i for i in reversed(range(0, poly_degree+1))], 1)
+        return torch.cat([x ** i for i in reversed(range(0, self.poly_degree+1))], 1)
 
 
     @config_enumerate
@@ -202,10 +203,7 @@ class pyro_infer_scRT():
 
         # gc bias params
         if betas is None:
-            poly_degree = 4
-            betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([poly_degree+1]).to_event(1))
-        else:
-            poly_degree = betas.shape[0]-1
+            betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1]).to_event(1))
 
         if rt0 is not None:
             # fix rt as constant when input into model
@@ -253,7 +251,7 @@ class pyro_infer_scRT():
                 rep_cn = cn * (1. + rep)
 
                 # copy number accounting for gc bias
-                gc_features = self.make_gc_features(torch.tensor([gc_profile[l]]), poly_degree=poly_degree)
+                gc_features = self.make_gc_features(torch.tensor([gc_profile[l]]))
                 gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
                 biased_cn = rep_cn * gc_rate.reshape(-1, 1)
 
@@ -271,7 +269,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_g1(self, gc_profile, cn=None, num_cells=None, num_loci=None, data=None, u_guess=70., poly_degree=4):
+    def model_g1(self, gc_profile, cn=None, num_cells=None, num_loci=None, data=None, u_guess=70.):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -284,7 +282,7 @@ class pyro_infer_scRT():
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
 
         # gc bias params
-        betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([poly_degree+1]).to_event(1))
+        betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1]).to_event(1))
 
         with pyro.plate('num_cells', num_cells):
 
@@ -294,7 +292,7 @@ class pyro_infer_scRT():
             with pyro.plate('num_loci', num_loci):
 
                 # copy number accounting for gc bias
-                gc_features = self.make_gc_features(gc_profile, poly_degree=poly_degree)
+                gc_features = self.make_gc_features(gc_profile)
                 gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
                 biased_cn = cn * gc_rate.reshape(-1, 1)
 
@@ -364,9 +362,9 @@ class pyro_infer_scRT():
         trace_g1 = poutine.trace(inferred_model_g1).get_trace(gc_profile, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
 
         # extract fitted parameters
-        nb_r_fit = trace_g1.nodes['expose_nb_r']['value']
-        betas_fit = trace_g1.nodes['expose_betas']['value']
-        u_fit = trace_g1.nodes['expose_u']['value']
+        nb_r_fit = trace_g1.nodes['expose_nb_r']['value'].detach()
+        betas_fit = trace_g1.nodes['expose_betas']['value'].detach()
+        u_fit = trace_g1.nodes['expose_u']['value'].detach()
 
         # # Now run the model for S-phase cells
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
