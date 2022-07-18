@@ -196,10 +196,9 @@ class pyro_infer_scRT():
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([nb_r_guess]), constraint=constraints.positive)
         
-        # transition probabilities for HMM
-        if trans_mat is None:
-            trans_mat = pyro.sample('expose_trans_prob',
-                                    dist.Dirichlet(0.99 * torch.eye(13) + 0.01).to_event(1))
+        # define cell and loci plates
+        loci_plate = pyro.plate('num_loci', num_loci, dim=-2)
+        cell_plate = pyro.plate('num_cells', num_cells, dim=-1)
 
         # gc bias params
         if betas is None:
@@ -209,11 +208,11 @@ class pyro_infer_scRT():
             # fix rt as constant when input into model
             rt = rt0
         else:
-            with pyro.plate('num_loci0', num_loci):
+            with loci_plate:
                 # bulk replication timing profile
                 rt = pyro.sample('expose_rt', dist.Beta(torch.tensor([1.]), torch.tensor([1.])))
 
-        with pyro.plate('num_cells', num_cells):
+        with cell_plate:
 
             # per cell replication time
             time = pyro.sample('expose_time', dist.Beta(torch.tensor([1.]), torch.tensor([1.])))
@@ -221,37 +220,30 @@ class pyro_infer_scRT():
             # per cell reads per copy per bin
             u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
             
-            # starting states for markov chain
-            if cn0 is None:
-                cn = 2
+            with loci_plate:
 
-            for l in pyro.markov(range(num_loci)):
-
-                # sample copy number states using HMM structure
                 if cn0 is None:
-                    temp_cn_prob = trans_mat[cn]
-                    if cn_prior is not None:
-                        temp_cn_prob = temp_cn_prob * cn_prior[l]
-                    cn = pyro.sample("cn_{}".format(l), dist.Categorical(temp_cn_prob),
-                                     infer={"enumerate": "parallel"})
-                else:
-                    # no need to sample cn when true cn0 is provided to the model
-                    cn = cn0[l]
-                    
+                    if cn_prior is None:
+                        cn_prior = torch.ones(num_loci, num_cells, 13)
+                    # sample cn probabilities of each bin from Dirichlet
+                    cn_prob = pyro.sample('expose_cn_prob', dist.Dirichlet(cn_prior))
+                    # sample cn state from categorical based on cn_prob
+                    cn = pyro.sample('cn', dist.Categorical(cn_prob), infer={"enumerate": "parallel"})
+
                 # per cell per bin late or early 
-                time_diff = time.reshape(-1, num_cells) - rt[l]
+                t_diff = time.reshape(-1, num_cells) - rt.reshape(num_loci, -1)
 
                 # probability of having been replicated
-                p_rep = 1 / (1 + torch.exp(-a * time_diff))
+                p_rep = 1 / (1 + torch.exp(-a * t_diff))
 
                 # binary replicated indicator
-                rep = pyro.sample('rep_{}'.format(l), dist.Bernoulli(p_rep))
-                
+                rep = pyro.sample('rep', dist.Bernoulli(p_rep), infer={"enumerate": "parallel"})
+
                 # copy number accounting for replication
                 rep_cn = cn * (1. + rep)
 
                 # copy number accounting for gc bias
-                gc_features = self.make_gc_features(torch.tensor([gc_profile[l]]))
+                gc_features = self.make_gc_features(gc_profile)
                 gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
                 biased_cn = rep_cn * gc_rate.reshape(-1, 1)
 
@@ -261,11 +253,11 @@ class pyro_infer_scRT():
                 nb_p = expected_reads / (expected_reads + nb_r)
                 
                 if data is not None:
-                    obs = data[l]
+                    obs = data
                 else:
                     obs = None
                 
-                reads = pyro.sample('reads_{}'.format(l), dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
+                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
 
 
     @config_enumerate
@@ -381,7 +373,7 @@ class pyro_infer_scRT():
 
         guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
-        elbo_s = JitTraceEnum_ELBO(max_plate_nesting=1)
+        elbo_s = JitTraceEnum_ELBO(max_plate_nesting=2)
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
         # guess the initial mean for u assuming that half the bins should be replicated
@@ -391,7 +383,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for S-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gc_profile, betas=betas_fit, data=cn_s_reads, trans_mat=trans_mat, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+            loss = svi_s.step(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -404,14 +396,14 @@ class pyro_infer_scRT():
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, trans_mat=trans_mat, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, trans_mat=trans_mat, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
         # extract fitted parameters
         nb_r_fit_s = trace_s.nodes['expose_nb_r']['value']
@@ -419,24 +411,12 @@ class pyro_infer_scRT():
         rt_fit_s = trace_s.nodes['expose_rt']['value']
         a_fit_s = trace_s.nodes['expose_a']['value']
         time_fit_s = trace_s.nodes['expose_time']['value']
-
-        model_rep = torch.zeros(cn_s_reads.shape)
-        model_cn = torch.zeros(cn_s_reads.shape)
-        model_rep_cn = torch.zeros(cn_s_reads.shape)
-        model_reads = torch.zeros(cn_s_reads.shape)
-        for l in range(num_loci):
-            temp_rep = trace_s.nodes['rep_{}'.format(l)]['value']
-            temp_cn = trace_s.nodes['cn_{}'.format(l)]['value']
-            temp_rep_cn = temp_cn * (1. + temp_rep)
-            temp_reads = trace_s.nodes['reads_{}'.format(l)]['value']
-            model_rep[l] = temp_rep
-            model_cn[l] = temp_cn
-            model_rep_cn[l] = temp_rep_cn
-            model_reads[l] = temp_reads
+        model_rep = trace_s.nodes['rep']['value']
+        model_cn = trace_s.nodes['cn']['value']
 
         # add inferred CN and RT states to the S-phase output df
-        model_cn_df = pd.DataFrame(model_cn_df, index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
-        model_rep_df = pd.DataFrame(model_rep_df, index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_cn_df = pd.DataFrame(model_cn.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_rep_df = pd.DataFrame(model_rep.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
         model_cn_df = model_cn_df.melt(ignore_index=False, value_name='model_cn_state').reset_index()
         model_rep_df = model_rep_df.melt(ignore_index=False, value_name='model_rep_state').reset_index()
         cn_s_out = pd.merge(cn_s, model_cn_df)
@@ -458,11 +438,10 @@ class pyro_infer_scRT():
         cn_s_out = pd.merge(cn_s_out, s_times_out)
         cn_s_out = pd.merge(cn_s_out, Us_out)
         cn_s_out = pd.merge(cn_s_out, bulk_rt_out)
-        cn_s_out['model_nb_r_s'] = nb_r_fit_s
-        cn_s_out['model_a'] = a_fit_s
-        cn_s_out['model_gc0'] = gc_params_fit[0]
-        cn_s_out['model_gc1'] = gc_params_fit[1]
-        cn_s_out['model_gc2'] = gc_params_fit[2]
-        cn_s_out['model_gc3'] = gc_params_fit[3]
+        cn_s_out['model_nb_r_s'] = nb_r_fit_s.detach().numpy()[0]
+        cn_s_out['model_a'] = a_fit_s.detach().numpy()[0]
+        for i in range(self.poly_degree):
+            cn_s_out['model_gc{}'.format(i)] = betas_fit.detach().numpy()[i]
+
         
         return cn_s_out
