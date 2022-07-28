@@ -3,11 +3,9 @@ import logging
 import sys
 
 import torch
-import torch.nn as nn
 from torch.distributions import constraints
 
 import pyro
-import pyro.contrib.examples.polyphonic_data_loader as poly
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer.autoguide import AutoDelta
@@ -419,7 +417,7 @@ class pyro_infer_scRT():
         model_rep_df = pd.DataFrame(model_rep.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
         model_cn_df = model_cn_df.melt(ignore_index=False, value_name='model_cn_state').reset_index()
         model_rep_df = model_rep_df.melt(ignore_index=False, value_name='model_rep_state').reset_index()
-        cn_s_out = pd.merge(cn_s, model_cn_df)
+        cn_s_out = pd.merge(self.cn_s, model_cn_df)
         cn_s_out = pd.merge(cn_s_out, model_rep_df)
 
         # add other inferred parameters to cn_s_out
@@ -441,7 +439,6 @@ class pyro_infer_scRT():
         cn_s_out['model_nb_r_s'] = nb_r_fit_s.detach().numpy()[0]
         cn_s_out['model_a'] = a_fit_s.detach().numpy()[0]
         for i in range(self.poly_degree):
-            cn_s_out['model_gc{}'.format(i)] = betas_fit.detach().numpy()[i]
-
+            cn_s_out['model_gc_beta{}'.format(i)] = betas_fit.detach().numpy()[i]
         
         return cn_s_out

@@ -84,20 +84,20 @@ class scRT:
 
     def infer_pyro_model(self):
         # run clustering if no clones are included in G1 input
-        if self.clone_col is None:
-            clusters = kmeans_cluster(self.cn_g1)
-            self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
-            self.clone_col = 'cluster_id'
+        # if self.clone_col is None:
+        #     clusters = kmeans_cluster(self.cn_g1)
+        #     self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
+        #     self.clone_col = 'cluster_id'
 
         # compute conesensus clone profiles
-        self.clone_profiles = compute_consensus_clone_profiles(
-            self.cn_g1, self.assign_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
-            start_col=self.start_col, cn_state_col=self.cn_state_col
-        )
+        # self.clone_profiles = compute_consensus_clone_profiles(
+        #     self.cn_g1, self.assign_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+        #     start_col=self.start_col, cn_state_col=self.cn_state_col
+        # )
 
         # assign S-phase cells to clones
-        self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.assign_col, clone_col=self.clone_col,
-                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
+        # self.cn_s = assign_s_to_clones(self.cn_s, self.clone_profiles, col_name=self.assign_col, clone_col=self.clone_col,
+        #                                cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
 
         # run pyro model to get replication timing states
         pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
@@ -187,8 +187,9 @@ class scRT:
 
     def infer_bulk_level(self):
         # assign all cells to one pseudobulk dummy clone
-        self.cn_g1.loc[self.cn_g1.index, self.clone_col] = 'A'
-        self.cn_s.loc[self.cn_s.index, self.clone_col] = 'A'
+        dummy_clone_col = 'dummy_{}'.format(self.clone_col)
+        self.cn_g1.loc[self.cn_g1.index, dummy_clone_col] = '1'
+        self.cn_s.loc[self.cn_s.index, dummy_clone_col] = '1'
 
         # GC correction
         self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
@@ -196,12 +197,12 @@ class scRT:
 
         # compute pseudobulk profile for GC-normed read depth
         self.bulk_profile_gc_norm = compute_consensus_clone_profiles(
-            self.cn_g1, self.col2, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            self.cn_g1, self.col2, clone_col=dummy_clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
             start_col=self.start_col, cn_state_col=self.cn_state_col
         )
 
         # normalize by the pseudobulk profile
-        self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=self.clone_col,
+        self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=dummy_clone_col,
                                        cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col, temp_col=self.col3, 
                                        output_col=self.rv_col, seg_col=self.col4)
 
@@ -210,6 +211,10 @@ class scRT:
             self.cn_s, self.rv_col, rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, thresh_col=self.col5,
             MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2
         )
+
+        # drop the dummy clone column
+        self.cn_g1.drop(dummy_clone_col, axis=1, inplace=True)
+        self.cn_s.drop(dummy_clone_col, axis=1, inplace=True)
 
         return self.cn_s
 

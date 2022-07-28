@@ -66,7 +66,7 @@ def normalize_by_clone(cn_s, clone_profiles, input_col='rpm_gc_norm', clone_col=
         # set index to match clone dfs
         temp_cell_cn = cell_cn.set_index(clone_idx).copy()
         # extract the assigned clone_id
-        temp_clone_id = temp_cell_cn.clone_id.unique()[0]
+        temp_clone_id = temp_cell_cn[clone_col].unique()[0]
         # add normalized copy column (with new indices)
         temp_out_cn = cell_clone_norm(clone_profiles, temp_cell_cn, temp_clone_id, input_col, temp_col, chr_col=chr_col, start_col=start_col)
         # remove cell specific CNAs by nominating changepoints
