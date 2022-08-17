@@ -93,10 +93,10 @@ class pyro_infer_scRT():
         self.cn_s = self.cn_s[self.cn_s[self.input_col].notna()]
 
         # pivot to 2D matrix where each row is a unique cell, columns are loci
-        cn_g1_reads_df = self.cn_g1.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
-        cn_g1_states_df = self.cn_g1.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
-        cn_s_reads_df = self.cn_s.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
-        cn_s_states_df = self.cn_s.pivot(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
+        cn_g1_reads_df = self.cn_g1.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
+        cn_g1_states_df = self.cn_g1.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
+        cn_s_reads_df = self.cn_s.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
+        cn_s_states_df = self.cn_s.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
 
         cn_g1_reads_df = cn_g1_reads_df.dropna()
         cn_g1_states_df = cn_g1_states_df.dropna()
@@ -104,7 +104,7 @@ class pyro_infer_scRT():
         cn_s_states_df = cn_s_states_df.dropna()
 
         assert cn_g1_states_df.shape == cn_g1_reads_df.shape
-        assert cn_s_reads_df.shape[0] == cn_g1_reads_df.shape[0]
+        assert cn_s_reads_df.shape[1] == cn_g1_reads_df.shape[1]
 
         cn_g1_reads_df = cn_g1_reads_df.T
         cn_g1_states_df = cn_g1_states_df.T
@@ -119,17 +119,17 @@ class pyro_infer_scRT():
 
         # TODO: get tensors for GC and RT profiles
         gc_profile = self.cn_s[[self.chr_col, self.start_col, self.gc_col]].drop_duplicates()
-        rt_prior_profile = self.cn_s[[self.chr_col, self.start_col, self.rt_prior_col]].drop_duplicates()
-
         gc_profile = gc_profile.dropna()
-        rt_prior_profile = rt_prior_profile.dropna()
-
-        assert cn_s_reads.shape[0] == gc_profile.shape[0] == rt_prior_profile.shape[0]
-
         gc_profile = torch.tensor(gc_profile[self.gc_col].values).to(torch.float32)
-        rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
 
-        rt_prior_profile = self.convert_rt_prior_units(rt_prior_profile)
+        if (self.rt_prior_col is not None) and (self.rt_prior_col is in self.cn_s.columns)::
+            rt_prior_profile = self.cn_s[[self.chr_col, self.start_col, self.rt_prior_col]].drop_duplicates()
+            rt_prior_profile = rt_prior_profile.dropna()
+            rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
+            rt_prior_profile = self.convert_rt_prior_units(rt_prior_profile)
+            assert cn_s_reads.shape[0] == gc_profile.shape[0] == rt_prior_profile.shape[0]
+        else:
+            rt_prior_profile = None
 
         return cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, gc_profile, rt_prior_profile
 
