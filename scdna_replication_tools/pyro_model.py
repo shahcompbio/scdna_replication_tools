@@ -17,6 +17,8 @@ from pyro.util import ignore_jit_warnings, optional
 import numpy as np
 import pandas as pd
 
+from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles
+
 logging.basicConfig(format='%(relativeCreated) 9d %(message)s', level=logging.DEBUG)
 
 # Add another handler for logging debugging events (e.g. for profiling)
@@ -32,7 +34,7 @@ class pyro_infer_scRT():
     def __init__(self, cn_s, cn_g1, input_col='reads', gc_col='gc', rt_prior_col='mcf7rt',
                  clone_col='clone_id', cell_col='cell_id', library_col='library_id',
                  chr_col='chr', start_col='start', cn_state_col='state',
-                 rs_col='rt_state', frac_rt_col='frac_rt',
+                 rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='hmmcopy',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
                  cuda=False, seed=0, num_states=13, poly_degree=4):
         '''
@@ -50,6 +52,7 @@ class pyro_infer_scRT():
         :param cn_state_col: column for the HMMcopy-determined somatic copy number state of each bin; only needs to be present in cn_g1. (str)
         :param rs_col: output column added containing the replication state of each bin for S-phase cells. (str)
         :param frac_rt_col: column added containing the fraction of replciated bins for each S-phase cell. (str)
+        :param cn_prior_method: Method for building the cn prior. Options are 'hmmcopy', 'g1_cells', 'g1_clones', 'diploid'. (str)
         :param learning_rate: learning rate of Adam optimizer. (float)
         :param max_iter: max number of iterations of elbo optimization during inference. (int)
         :param rel_tol: when the relative change in elbo drops to rel_tol, stop inference. (float)
@@ -82,6 +85,8 @@ class pyro_infer_scRT():
         self.num_states = num_states
         self.poly_degree = poly_degree
 
+        self.cn_prior_method = cn_prior_method
+
 
     def process_input_data(self):
         # sort rows by correct genomic ordering
@@ -112,17 +117,18 @@ class pyro_infer_scRT():
         cn_s_states_df = cn_s_states_df.T
 
         # convert to tensor and unsqueeze the data dimension
-        cn_g1_reads = torch.tensor(cn_g1_reads_df.values).to(torch.float32)
-        cn_g1_states = torch.tensor(cn_g1_states_df.values).to(torch.float32)
-        cn_s_reads = torch.tensor(cn_s_reads_df.values).to(torch.float32)
-        cn_s_states = torch.tensor(cn_s_states_df.values).to(torch.float32)
+        # convert to int64 before float32 to ensure that all values are rounded to the nearest int
+        cn_g1_reads = torch.tensor(cn_g1_reads_df.values).to(torch.int64).to(torch.float32)
+        cn_g1_states = torch.tensor(cn_g1_states_df.values).to(torch.int64).to(torch.float32)
+        cn_s_reads = torch.tensor(cn_s_reads_df.values).to(torch.int64).to(torch.float32)
+        cn_s_states = torch.tensor(cn_s_states_df.values).to(torch.int64).to(torch.float32)
 
         # TODO: get tensors for GC and RT profiles
         gc_profile = self.cn_s[[self.chr_col, self.start_col, self.gc_col]].drop_duplicates()
         gc_profile = gc_profile.dropna()
         gc_profile = torch.tensor(gc_profile[self.gc_col].values).to(torch.float32)
 
-        if (self.rt_prior_col is not None) and (self.rt_prior_col is in self.cn_s.columns)::
+        if (self.rt_prior_col is not None) and (self.rt_prior_col in self.cn_s.columns):
             rt_prior_profile = self.cn_s[[self.chr_col, self.start_col, self.rt_prior_col]].drop_duplicates()
             rt_prior_profile = rt_prior_profile.dropna()
             rt_prior_profile = torch.tensor(rt_prior_profile[self.rt_prior_col].values).unsqueeze(-1).to(torch.float32)
@@ -312,7 +318,60 @@ class pyro_infer_scRT():
         optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
         elbo = JitTraceEnum_ELBO(max_plate_nesting=2)
 
-        cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, gc_profile, rt_prior_profile = self.process_input_data()
+        cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, \
+            cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, \
+            gc_profile, rt_prior_profile = self.process_input_data()
+
+        # build transition matrix and cn prior for S-phase cells
+        trans_mat = self.build_trans_mat(cn_g1_states)
+
+        if self.cn_prior_method == 'hmmcopy':
+            # use hmmcopy states for the S-phase cells to build the prior
+            cn_prior = self.build_cn_prior(cn_s_states)
+        elif self.cn_prior_method == 'g1_cells':
+            # use G1-phase cell that has highest correlation to each S-phase cell as prior
+            raise ValueError("g1_cells method not implemented yet")
+            cn_prior = ...
+        elif self.cn_prior_method == 'g1_clones':
+            # use G1-phase clone that has highest correlation to each S-phase cell as prior
+            # compute consensuse clone profiles for cn state
+            clone_cn_profiles = compute_consensus_clone_profiles(
+                self.cn_g1, self.cn_state_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+                start_col=self.start_col, cn_state_col=self.cn_state_col
+            )
+
+            print('clone_cn_profiles\n', clone_cn_profiles)
+            print('cn_s prior to adding cn_prior\n', self.cn_s.head())
+            print('cn_s_reads_df\n', cn_s_reads_df.head())
+            print('cn_s_reads_df.shape', cn_s_reads_df.shape)
+            print('cn_s_states.shape', cn_s_states.shape)
+
+            cn_prior_input = torch.zeros(cn_s_states.shape)
+            for i, cell_id in enumerate(cn_s_reads_df.columns):
+                if i < 2:
+                    print('cell_id', cell_id)
+                cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
+                if i < 2:
+                    print('cell_cn\n', cell_cn.head())
+                cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
+                cn_prior_input[:, i] = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
+            
+            print('cn_prior_input\n', cn_prior_input)
+
+            # build a proper prior over num_states using the consensus clone cn calls for each cell
+            cn_prior = self.build_cn_prior(cn_prior_input)
+        elif self.cn_prior_method == 'diploid':
+            # assume that every S-phase cell has a diploid prior
+            num_loci, num_cells = cn_s_states.shape
+            cn_s_diploid = torch.ones(num_loci, num_cells, self.num_states) * 2
+            cn_prior = self.build_cn_prior(cn_s_diploid)
+        else:
+            # assume uniform prior otherwise
+            num_loci, num_cells = cn_s_states.shape
+            cn_prior = torch.ones(num_loci, num_cells, self.num_states) / self.num_states
+
+        print('cn_prior_method', self.cn_prior_method)
+        print('cn_prior\n', cn_prior)
 
         # TODO: Assign S-phase cells to best G1-phase matching cell
 
@@ -360,9 +419,6 @@ class pyro_infer_scRT():
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
         # logging.info('read_profiles data type: {}'.format(cn_s_reads.dtype))
 
-        # build transition matrix and cn prior for S-phase cells
-        trans_mat = self.build_trans_mat(cn_g1_states)
-        cn_prior = self.build_cn_prior(cn_s_states)
 
         num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
         pyro.set_rng_seed(self.seed)
