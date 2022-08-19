@@ -125,8 +125,7 @@ class pyro_infer_scRT():
 
         # get tensor of library_id index
         # need this because each library will have unique gc params
-        libs_s = self.get_libraries_tensor(self.cn_s)
-        libs_g1 = self.get_libraries_tensor(self.cn_g1)
+        libs_s, libs_g1 = self.get_libraries_tensor(self.cn_s, self.cn_g1)
 
         # make sure there's one library index per cell
         assert libs_s.shape[0] == cn_s_reads.shape[1]
@@ -161,17 +160,24 @@ class pyro_infer_scRT():
         return cn
 
 
-    def get_libraries_tensor(self, cn):
+    def get_libraries_tensor(self, cn_s, cn_g1):
         """ Create a tensor of integers representing the unique library_id of each cell. """
-        libs = cn[[self.cell_col, self.library_col]].drop_duplicates()
+        libs_s = cn_s[[self.cell_col, self.library_col]].drop_duplicates()
+        libs_g1 = cn_g1[[self.cell_col, self.library_col]].drop_duplicates()
+
+        # get all unique library ids found across cells of both cell cycle phases
+        all_library_ids = pd.concat([libs_s, libs_g1])[self.library_col].unique()
         
         # replace library_id strings with integer values
-        for i, library_id in enumerate(libs[self.library_col].unique()):
-            libs[self.library_col].replace(library_id, i, inplace=True)
-        # convert to tensor
-        libs = torch.tensor(libs[self.library_col].values).to(torch.int64).to(torch.float32)
+        for i, library_id in enumerate(all_library_ids):
+            libs_s[self.library_col].replace(library_id, i, inplace=True)
+            libs_g1[self.library_col].replace(library_id, i, inplace=True)
+        
+        # convert to tensors of type int (ints needed to index other tensors)
+        libs_s = torch.tensor(libs_s[self.library_col].values).to(torch.int64)
+        libs_g1 = torch.tensor(libs_g1[self.library_col].values).to(torch.int64)
 
-        return libs
+        return libs_s, libs_g1
 
 
     def convert_rt_prior_units(self, rt_prior_profile):
@@ -227,8 +233,8 @@ class pyro_infer_scRT():
         nb_r = pyro.param('expose_nb_r', torch.tensor([nb_r_guess]), constraint=constraints.positive)
 
         # gc bias params
-        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, poly_degree+1]).to_event(2))
-        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-poly_degree, steps=(poly_degree+1)).reshape(1, -1).expand([num_libraries, poly_degree+1]),
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, self.poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([num_libraries, self.poly_degree+1]),
                                constraint=constraints.positive)
         
         # define cell and loci plates
@@ -309,8 +315,8 @@ class pyro_infer_scRT():
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
 
         # gc bias params
-        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, poly_degree+1]).to_event(2))
-        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-poly_degree, steps=(poly_degree+1)).reshape(1, -1).expand([num_libraries, poly_degree+1]),
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, self.poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([num_libraries, self.poly_degree+1]),
                                constraint=constraints.positive)
 
         with pyro.plate('num_cells', num_cells):
