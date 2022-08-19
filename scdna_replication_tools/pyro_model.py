@@ -210,7 +210,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gc_profile, libs, betas=None, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, trans_mat=None, cn_prior=None, u_guess=70., nb_r_guess=10000.):
+    def model_s(self, gc_profile, libs, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, trans_mat=None, cn_prior=None, u_guess=70., nb_r_guess=10000.):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -218,21 +218,22 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn0.shape
             assert num_cells is not None
             assert num_loci is not None
-            num_libraries = torch.max(libs) + 1
+            num_libraries = int(torch.max(libs).item() + 1)
 
         # controls the consistency of replicating on time
         a = pyro.sample('expose_a', dist.Gamma(torch.tensor([2.]), torch.tensor([0.2])))
         
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([nb_r_guess]), constraint=constraints.positive)
+
+        # gc bias params
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-poly_degree, steps=(poly_degree+1)).reshape(1, -1).expand([num_libraries, poly_degree+1]),
+                               constraint=constraints.positive)
         
         # define cell and loci plates
         loci_plate = pyro.plate('num_loci', num_loci, dim=-2)
         cell_plate = pyro.plate('num_cells', num_cells, dim=-1)
-
-        # gc bias params
-        if betas is None:
-            betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1, num_libraries]).to_event(1))
 
         if rt0 is not None:
             # fix rt as constant when input into model
@@ -249,6 +250,9 @@ class pyro_infer_scRT():
 
             # per cell reads per copy per bin
             u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
+
+            # sample beta params for each cell based on which library the cell belongs to
+            betas = pyro.sample('expose_betas', dist.Normal(beta_means[libs], beta_stds[libs]).to_event(1))
             
             with loci_plate:
 
@@ -299,18 +303,23 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn.shape
             assert num_cells is not None
             assert num_loci is not None
-            num_libraries = torch.max(libs) + 1
+            num_libraries = int(torch.max(libs).item() + 1)
         
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
 
         # gc bias params
-        betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1, num_libraries]).to_event(1))
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-poly_degree, steps=(poly_degree+1)).reshape(1, -1).expand([num_libraries, poly_degree+1]),
+                               constraint=constraints.positive)
 
         with pyro.plate('num_cells', num_cells):
 
             # per cell reads per copy per bin
             u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
+
+            # sample beta params for each cell based on which library the cell belongs to
+            betas = pyro.sample('expose_betas', dist.Normal(beta_means[libs], beta_stds[libs]).to_event(1))
 
             with pyro.plate('num_loci', num_loci):
 
@@ -429,6 +438,8 @@ class pyro_infer_scRT():
         nb_r_fit = trace_g1.nodes['expose_nb_r']['value'].detach()
         betas_fit = trace_g1.nodes['expose_betas']['value'].detach()
         u_fit = trace_g1.nodes['expose_u']['value'].detach()
+        beta_means_fit = trace_g1.nodes['expose_beta_means']['value']
+        beta_stds_fit = trace_g1.nodes['expose_beta_stds']['value']
 
         # # Now run the model for S-phase cells
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
@@ -439,6 +450,15 @@ class pyro_infer_scRT():
         pyro.set_rng_seed(self.seed)
         pyro.clear_param_store()
         pyro.enable_validation(__debug__)
+
+        # condition gc betas of S-phase model using fitted results from G1-phase model
+        model_s = poutine.condition(
+            model_s,
+            data={
+                'expose_beta_means': beta_means_fit,
+                'expose_beta_stds': beta_stds_fit
+            })
+
 
         guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
@@ -452,7 +472,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for S-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+            loss = svi_s.step(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -465,14 +485,14 @@ class pyro_infer_scRT():
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
         # extract fitted parameters
         nb_r_fit_s = trace_s.nodes['expose_nb_r']['value']
