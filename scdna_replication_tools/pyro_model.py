@@ -123,11 +123,21 @@ class pyro_infer_scRT():
         cn_s_reads = torch.tensor(cn_s_reads_df.values).to(torch.int64).to(torch.float32)
         cn_s_states = torch.tensor(cn_s_states_df.values).to(torch.int64).to(torch.float32)
 
-        # TODO: get tensors for GC and RT profiles
+        # get tensor of library_id index
+        # need this because each library will have unique gc params
+        libs_s = self.get_libraries_tensor(self.cn_s)
+        libs_g1 = self.get_libraries_tensor(self.cn_g1)
+
+        # make sure there's one library index per cell
+        assert libs_s.shape[0] == cn_s_reads.shape[1]
+        assert libs_g1.shape[0] == cn_g1_reads.shape[1]
+
+        # get tensor for GC profile
         gc_profile = self.cn_s[[self.chr_col, self.start_col, self.gc_col]].drop_duplicates()
         gc_profile = gc_profile.dropna()
         gc_profile = torch.tensor(gc_profile[self.gc_col].values).to(torch.float32)
 
+        # get tensor for rt prior if provided
         if (self.rt_prior_col is not None) and (self.rt_prior_col in self.cn_s.columns):
             rt_prior_profile = self.cn_s[[self.chr_col, self.start_col, self.rt_prior_col]].drop_duplicates()
             rt_prior_profile = rt_prior_profile.dropna()
@@ -137,7 +147,7 @@ class pyro_infer_scRT():
         else:
             rt_prior_profile = None
 
-        return cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, gc_profile, rt_prior_profile
+        return cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, gc_profile, rt_prior_profile, libs_g1, libs_s
 
 
     def sort_by_cell_and_loci(self, cn):
@@ -151,6 +161,19 @@ class pyro_infer_scRT():
         return cn
 
 
+    def get_libraries_tensor(self, cn):
+        """ Create a tensor of integers representing the unique library_id of each cell. """
+        libs = cn[[self.cell_col, self.library_col]].drop_duplicates()
+        
+        # replace library_id strings with integer values
+        for i, library_id in enumerate(libs[self.library_col].unique()):
+            libs[self.library_col].replace(library_id, i, inplace=True)
+        # convert to tensor
+        libs = torch.tensor(libs[self.library_col].values).to(torch.int64).to(torch.float32)
+
+        return libs
+
+
     def convert_rt_prior_units(self, rt_prior_profile):
         """ Make sure that early RT regions are close to 1, late RT regions are close to 0 """
         rt_prior_profile = rt_prior_profile / max(rt_prior_profile)
@@ -158,6 +181,7 @@ class pyro_infer_scRT():
 
 
     def build_trans_mat(self, cn):
+        """ Use the frequency of state transitions in cn to build a new transition matrix. """
         trans_mat = torch.eye(self.num_states, self.num_states) + 1
         num_loci, num_cells = cn.shape
         for i in range(num_cells):
@@ -169,6 +193,7 @@ class pyro_infer_scRT():
 
 
     def build_cn_prior(self, cn, weight=1e6):
+        """ Build a prior for each bin's cn state based on its value in cn. """
         num_loci, num_cells = cn.shape
         cn_prior = torch.ones(num_loci, num_cells, self.num_states)
         for i in range(num_loci):
@@ -185,7 +210,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gc_profile, betas=None, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, trans_mat=None, cn_prior=None, u_guess=70., nb_r_guess=10000.):
+    def model_s(self, gc_profile, libs, betas=None, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, trans_mat=None, cn_prior=None, u_guess=70., nb_r_guess=10000.):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -193,6 +218,7 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn0.shape
             assert num_cells is not None
             assert num_loci is not None
+            num_libraries = torch.max(libs) + 1
 
         # controls the consistency of replicating on time
         a = pyro.sample('expose_a', dist.Gamma(torch.tensor([2.]), torch.tensor([0.2])))
@@ -206,7 +232,7 @@ class pyro_infer_scRT():
 
         # gc bias params
         if betas is None:
-            betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1]).to_event(1))
+            betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1, num_libraries]).to_event(1))
 
         if rt0 is not None:
             # fix rt as constant when input into model
@@ -248,7 +274,7 @@ class pyro_infer_scRT():
 
                 # copy number accounting for gc bias
                 gc_features = self.make_gc_features(gc_profile)
-                gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
+                gc_rate = torch.exp(torch.sum(betas[:, libs] * gc_features, 1))
                 biased_cn = rep_cn * gc_rate.reshape(-1, 1)
 
                 # expected reads per bin per cell
@@ -265,7 +291,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_g1(self, gc_profile, cn=None, num_cells=None, num_loci=None, data=None, u_guess=70.):
+    def model_g1(self, gc_profile, libs, cn=None, num_cells=None, num_loci=None, data=None, u_guess=70.):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -273,12 +299,13 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn.shape
             assert num_cells is not None
             assert num_loci is not None
+            num_libraries = torch.max(libs) + 1
         
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
 
         # gc bias params
-        betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1]).to_event(1))
+        betas = pyro.sample('expose_betas', dist.Normal(0., 1.).expand([self.poly_degree+1, num_libraries]).to_event(1))
 
         with pyro.plate('num_cells', num_cells):
 
@@ -289,7 +316,7 @@ class pyro_infer_scRT():
 
                 # copy number accounting for gc bias
                 gc_features = self.make_gc_features(gc_profile)
-                gc_rate = torch.exp(torch.sum(betas * gc_features, 1))
+                gc_rate = torch.exp(torch.sum(betas[:, libs] * gc_features, 1))
                 biased_cn = cn * gc_rate.reshape(-1, 1)
 
                 # expected reads per bin per cell
@@ -320,7 +347,10 @@ class pyro_infer_scRT():
 
         cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, \
             cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, \
-            gc_profile, rt_prior_profile = self.process_input_data()
+            gc_profile, rt_prior_profile, libs_g1, libs_s = self.process_input_data()
+
+        print('libs_g1', libs_g1)
+        print('libs_s', libs_s)
 
         # build transition matrix and cn prior for S-phase cells
         trans_mat = self.build_trans_mat(cn_g1_states)
@@ -340,24 +370,12 @@ class pyro_infer_scRT():
                 start_col=self.start_col, cn_state_col=self.cn_state_col
             )
 
-            print('clone_cn_profiles\n', clone_cn_profiles)
-            print('cn_s prior to adding cn_prior\n', self.cn_s.head())
-            print('cn_s_reads_df\n', cn_s_reads_df.head())
-            print('cn_s_reads_df.shape', cn_s_reads_df.shape)
-            print('cn_s_states.shape', cn_s_states.shape)
-
             cn_prior_input = torch.zeros(cn_s_states.shape)
             for i, cell_id in enumerate(cn_s_reads_df.columns):
-                if i < 2:
-                    print('cell_id', cell_id)
                 cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
-                if i < 2:
-                    print('cell_cn\n', cell_cn.head())
                 cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
                 cn_prior_input[:, i] = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
             
-            print('cn_prior_input\n', cn_prior_input)
-
             # build a proper prior over num_states using the consensus clone cn calls for each cell
             cn_prior = self.build_cn_prior(cn_prior_input)
         elif self.cn_prior_method == 'diploid':
@@ -369,9 +387,6 @@ class pyro_infer_scRT():
             # assume uniform prior otherwise
             num_loci, num_cells = cn_s_states.shape
             cn_prior = torch.ones(num_loci, num_cells, self.num_states) / self.num_states
-
-        print('cn_prior_method', self.cn_prior_method)
-        print('cn_prior\n', cn_prior)
 
         # TODO: Assign S-phase cells to best G1-phase matching cell
 
@@ -387,7 +402,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for G1-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi.step(gc_profile, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+            loss = svi.step(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -401,14 +416,14 @@ class pyro_infer_scRT():
 
 
         # replay model
-        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gc_profile, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
         trained_model_g1 = poutine.replay(model_g1, trace=guide_trace_g1)
 
         # infer discrete sites and get model trace
         inferred_model_g1 = infer_discrete(
             trained_model_g1, temperature=0,
             first_available_dim=-3)
-        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gc_profile, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
 
         # extract fitted parameters
         nb_r_fit = trace_g1.nodes['expose_nb_r']['value'].detach()
@@ -437,7 +452,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for S-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+            loss = svi_s.step(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -450,14 +465,14 @@ class pyro_infer_scRT():
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, libs_s, betas=betas_fit, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
 
         # extract fitted parameters
         nb_r_fit_s = trace_s.nodes['expose_nb_r']['value']
