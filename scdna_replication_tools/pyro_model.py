@@ -87,6 +87,8 @@ class pyro_infer_scRT():
 
         self.cn_prior_method = cn_prior_method
 
+        self.num_libraries = None
+
 
     def process_input_data(self):
         # sort rows by correct genomic ordering
@@ -167,6 +169,8 @@ class pyro_infer_scRT():
 
         # get all unique library ids found across cells of both cell cycle phases
         all_library_ids = pd.concat([libs_s, libs_g1])[self.library_col].unique()
+
+        self.num_libraries = int(len(all_library_ids))
         
         # replace library_id strings with integer values
         for i, library_id in enumerate(all_library_ids):
@@ -224,7 +228,6 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn0.shape
             assert num_cells is not None
             assert num_loci is not None
-            num_libraries = int(torch.max(libs).item() + 1)
 
         # controls the consistency of replicating on time
         a = pyro.sample('expose_a', dist.Gamma(torch.tensor([2.]), torch.tensor([0.2])))
@@ -233,8 +236,8 @@ class pyro_infer_scRT():
         nb_r = pyro.param('expose_nb_r', torch.tensor([nb_r_guess]), constraint=constraints.positive)
 
         # gc bias params
-        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, self.poly_degree+1]).to_event(2))
-        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([num_libraries, self.poly_degree+1]),
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([self.num_libraries, self.poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([self.num_libraries, self.poly_degree+1]),
                                constraint=constraints.positive)
         
         # define cell and loci plates
@@ -283,9 +286,9 @@ class pyro_infer_scRT():
                 rep_cn = cn * (1. + rep)
 
                 # copy number accounting for gc bias
-                gc_features = self.make_gc_features(gc_profile)
-                gc_rate = torch.exp(torch.sum(betas[:, libs] * gc_features, 1))
-                biased_cn = rep_cn * gc_rate.reshape(-1, 1)
+                gc_features = self.make_gc_features(gc_profile).reshape(num_loci, 1, self.poly_degree+1)
+                gc_rate = torch.exp(torch.sum(torch.mul(betas, gc_features), 2))
+                biased_cn = rep_cn * gc_rate
 
                 # expected reads per bin per cell
                 expected_reads = (u * biased_cn)
@@ -309,14 +312,13 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn.shape
             assert num_cells is not None
             assert num_loci is not None
-            num_libraries = int(torch.max(libs).item() + 1)
         
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
 
         # gc bias params
-        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([num_libraries, self.poly_degree+1]).to_event(2))
-        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([num_libraries, self.poly_degree+1]),
+        beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([self.num_libraries, self.poly_degree+1]).to_event(2))
+        beta_stds = pyro.param('expose_beta_stds', torch.logspace(start=0, end=-self.poly_degree, steps=(self.poly_degree+1)).reshape(1, -1).expand([self.num_libraries, self.poly_degree+1]),
                                constraint=constraints.positive)
 
         with pyro.plate('num_cells', num_cells):
@@ -330,9 +332,9 @@ class pyro_infer_scRT():
             with pyro.plate('num_loci', num_loci):
 
                 # copy number accounting for gc bias
-                gc_features = self.make_gc_features(gc_profile)
-                gc_rate = torch.exp(torch.sum(betas[:, libs] * gc_features, 1))
-                biased_cn = cn * gc_rate.reshape(-1, 1)
+                gc_features = self.make_gc_features(gc_profile).reshape(num_loci, 1, self.poly_degree+1)
+                gc_rate = torch.exp(torch.sum(torch.mul(betas, gc_features), 2))
+                biased_cn = cn * gc_rate
 
                 # expected reads per bin per cell
                 expected_reads = (u * biased_cn)
@@ -444,8 +446,8 @@ class pyro_infer_scRT():
         nb_r_fit = trace_g1.nodes['expose_nb_r']['value'].detach()
         betas_fit = trace_g1.nodes['expose_betas']['value'].detach()
         u_fit = trace_g1.nodes['expose_u']['value'].detach()
-        beta_means_fit = trace_g1.nodes['expose_beta_means']['value']
-        beta_stds_fit = trace_g1.nodes['expose_beta_stds']['value']
+        beta_means_fit = trace_g1.nodes['expose_beta_means']['value'].detach()
+        beta_stds_fit = trace_g1.nodes['expose_beta_stds']['value'].detach()
 
         # # Now run the model for S-phase cells
         # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
@@ -535,7 +537,11 @@ class pyro_infer_scRT():
         cn_s_out = pd.merge(cn_s_out, bulk_rt_out)
         cn_s_out['model_nb_r_s'] = nb_r_fit_s.detach().numpy()[0]
         cn_s_out['model_a'] = a_fit_s.detach().numpy()[0]
+        print('beta_means_fit.shape', beta_means_fit.shape)
+        print('beta_stds_fit.shape', beta_stds_fit.shape)
         for i in range(self.poly_degree):
-            cn_s_out['model_gc_beta{}'.format(i)] = betas_fit.detach().numpy()[i]
+            for j in range(self.num_libraries):
+                cn_s_out['model_gc_beta{}_mean_library{}'.format(i, j)] = beta_means_fit.numpy()[j, i]
+                cn_s_out['model_gc_beta{}_stds_library{}'.format(i, j)] = beta_stds_fit.numpy()[j, i]
         
         return cn_s_out
