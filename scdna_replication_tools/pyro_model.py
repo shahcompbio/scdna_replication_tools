@@ -9,13 +9,16 @@ import pyro
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, JitTraceEnum_ELBO, TraceEnum_ELBO, TraceTMC_ELBO, infer_discrete, config_enumerate
+from pyro.infer import SVI, JitTraceEnum_ELBO, JitTrace_ELBO, TraceEnum_ELBO, TraceTMC_ELBO, infer_discrete, config_enumerate
 from pyro.ops.indexing import Vindex
 from pyro.optim import Adam
 from pyro.util import ignore_jit_warnings, optional
 
 import numpy as np
 import pandas as pd
+from sklearn.mixture import GaussianMixture
+from scipy.stats import skew
+from scipy.spatial.distance import cityblock
 
 from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles
 
@@ -36,7 +39,7 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='hmmcopy',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                 cuda=False, seed=0, num_states=13, poly_degree=4):
+                 cuda=False, seed=0, num_states=13, poly_degree=4, gamma=6):
         '''
         initialise the pyro_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -59,6 +62,7 @@ class pyro_infer_scRT():
         :param cuda: use cuda tensor type. (bool)
         :param seed: random number generator seed. (int)
         :param num_states: number of integer copy number states to include in the model, values range from 0 to num_states-1. (int)
+        :param gamma: value that alpha and beta should sum to when creating a beta distribution prior for time. (int)
         '''
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
@@ -88,6 +92,8 @@ class pyro_infer_scRT():
         self.cn_prior_method = cn_prior_method
 
         self.num_libraries = None
+
+        self.gamma = gamma
 
 
     def process_input_data(self):
@@ -213,6 +219,99 @@ class pyro_infer_scRT():
         return cn_prior
 
 
+    def manhattan_binarization(self, X, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
+        """ Binarize X into binary replicated vs unreplicated states by drawing an optimal threshold through X that minimizes the manhattan distance of all points. """
+        # center and scale the data
+        X = (X - np.mean(X)) / np.std(X)
+        
+        # fit a 2-state GMM to the data
+        gm = GaussianMixture(n_components=2, random_state=0)
+        states = gm.fit_predict(X)
+        
+        # use GMM means to assign binary values for thresholding
+        mean_0 = gm.means_[0][0]
+        mean_1 = gm.means_[1][0]
+
+        # find the distance between the two means for each state
+        mean_gap = abs(mean_0 - mean_1)
+
+        # assume means denote binary values
+        binary_0 = min(mean_0, mean_1)
+        binary_1 = max(mean_0, mean_1)
+        
+        X = X.flatten()
+        
+        # use skew to define the binary values if means are close together
+        if mean_gap < MEAN_GAP_THRESH:
+            cell_skew = skew(X)
+            # positive skew indicates early S-phase
+            if cell_skew > EARLY_S_SKEW_THRESH:
+                binary_0 = np.percentile(X, 50)
+                binary_1 = np.percentile(X, 95)
+            # negative skew indicates late S-phase
+            elif cell_skew < LATE_S_SKEW_THRESH:
+                binary_0 = np.percentile(X, 5)
+                binary_1 = np.percentile(X, 50)
+            # assume mid-S when skew is neutral
+            else:
+                binary_0 = np.percentile(X, 25)
+                binary_1 = np.percentile(X, 75)
+
+        # now that binary values are selected, I must compute the Manhattan distance
+        # between binarized data and X for 100 different thresholds
+        threshs = np.linspace(binary_0, binary_1, 100)
+        lowest_dist = np.inf
+        best_t = None
+        manhattan_dists = []
+        for t in threshs:
+            # set values to binary_1 when above t, to binary_0 when below t
+            B = np.where(X>t, binary_1, binary_0)
+            # compute Manhattan distance between two vectors
+            dist = cityblock(X, B)
+            manhattan_dists.append(dist)
+            if dist < lowest_dist:
+                lowest_dist = dist
+                best_t = t
+
+        # binarize X based on the best threshold
+        cell_rt = np.where(X>best_t, 1, 0)
+        # compute fraction of replicated bins (cell's time within s-phase)
+        frac_rt = sum(cell_rt) / len(cell_rt)
+        
+        return cell_rt, frac_rt
+
+
+    def guess_times(self, cn_s_reads, cn_prior):
+        """ 
+        Come up with a guess for what each cell's time in S-phase should be by
+        binarizing the cn-normalized read count.
+        """
+        num_loci, num_cells = cn_s_reads.shape
+        t_init = torch.zeros(num_cells)
+        t_alpha_prior = torch.zeros(num_cells)
+        t_beta_prior = torch.zeros(num_cells)
+
+        # normalize raw read count by whatever state has the highest probability in the cn prior
+        reads_norm_by_cn = cn_s_reads / torch.argmax(cn_prior, dim=2)
+
+        for i in range(num_cells):
+            cell_profile = reads_norm_by_cn[:, i]
+            
+            X = cell_profile.numpy().reshape(-1, 1)
+            y_pred2, t_guess = self.manhattan_binarization(X)
+            
+            t_init[i] = t_guess
+            
+            # use t_guess as the mean of a beta distribution parameterized by alpha and beta
+            # where alpha and beta must sum to gamma
+            alpha = t_guess * self.gamma
+            beta = self.gamma - alpha
+            t_alpha_prior[i] = alpha
+            t_beta_prior[i] = beta
+
+        return t_init, t_alpha_prior, t_beta_prior
+
+
     def make_gc_features(self, x):
         """Builds features i.e. a matrix with columns [x, x^2, x^3, x^4]."""
         x = x.unsqueeze(1)
@@ -220,7 +319,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gc_profile, libs, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, trans_mat=None, cn_prior=None, u_guess=70., nb_r_guess=10000.):
+    def model_s(self, gc_profile, libs, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, cn_prior=None, nb_r_guess=10000., t_alpha_prior=None, t_beta_prior=None, t_init=None):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -228,6 +327,7 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn0.shape
             assert num_cells is not None
             assert num_loci is not None
+            assert data is not None
 
         # controls the consistency of replicating on time
         a = pyro.sample('expose_a', dist.Gamma(torch.tensor([2.]), torch.tensor([0.2])))
@@ -255,10 +355,27 @@ class pyro_infer_scRT():
         with cell_plate:
 
             # per cell replication time
-            time = pyro.sample('expose_time', dist.Beta(torch.tensor([1.]), torch.tensor([1.])))
-
+            # draw from prior if provided
+            if (t_alpha_prior is not None) and (t_beta_prior is not None):
+                time = pyro.sample('expose_time', dist.Beta(t_alpha_prior, t_beta_prior))
+            elif t_init is not None:
+                time = pyro.param('expose_time', t_init, constraint=constraints.unit_interval)
+            else:
+                time = pyro.sample('expose_time', dist.Beta(torch.tensor([1.5]), torch.tensor([1.5])))
+            
             # per cell reads per copy per bin
-            u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
+            # u should be inversely related to time and cn, positively related to reads
+            if cn0 is not None:
+                cell_ploidies = torch.mean(cn0.type(torch.float32), dim=0)
+            elif cn_prior is not None:
+                temp_cn0 = torch.argmax(cn_prior, dim=2).type(torch.float32)
+                cell_ploidies = torch.mean(temp_cn0, dim=0)
+            else:
+                cell_ploidies = torch.ones(num_cells) * 2.
+            u_guess = torch.mean(data.type(torch.float32), dim=0) / ((1 + time) * cell_ploidies)
+            u_stdev = u_guess / 10.
+        
+            u = pyro.sample('expose_u', dist.Normal(u_guess, u_stdev))
 
             # sample beta params for each cell based on which library the cell belongs to
             betas = pyro.sample('expose_betas', dist.Normal(beta_means[libs], beta_stds[libs]).to_event(1))
@@ -295,16 +412,10 @@ class pyro_infer_scRT():
 
                 nb_p = expected_reads / (expected_reads + nb_r)
                 
-                if data is not None:
-                    obs = data
-                else:
-                    obs = None
-                
-                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
+                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=data)
 
 
-    @config_enumerate
-    def model_g1(self, gc_profile, libs, cn=None, num_cells=None, num_loci=None, data=None, u_guess=70.):
+    def model_g1(self, gc_profile, libs, cn=None, num_cells=None, num_loci=None, data=None):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -312,6 +423,7 @@ class pyro_infer_scRT():
                 num_loci, num_cells = cn.shape
             assert num_cells is not None
             assert num_loci is not None
+            assert (data is not None) and (cn is not None)
         
         # negative binomial dispersion
         nb_r = pyro.param('expose_nb_r', torch.tensor([10000.0]), constraint=constraints.positive)
@@ -324,7 +436,9 @@ class pyro_infer_scRT():
         with pyro.plate('num_cells', num_cells):
 
             # per cell reads per copy per bin
-            u = pyro.sample('expose_u', dist.Normal(torch.tensor([u_guess]), torch.tensor([u_guess/10.])))
+            # u should be solved for when cn and read count are both observed
+            cell_ploidies = torch.mean(cn.type(torch.float32), dim=0)
+            u = torch.mean(data.type(torch.float32), dim=0) / cell_ploidies
 
             # sample beta params for each cell based on which library the cell belongs to
             betas = pyro.sample('expose_betas', dist.Normal(beta_means[libs], beta_stds[libs]).to_event(1))
@@ -341,12 +455,7 @@ class pyro_infer_scRT():
 
                 nb_p = expected_reads / (expected_reads + nb_r)
 
-                if data is not None:
-                    obs = data
-                else:
-                    obs = None
-
-                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=obs)
+                reads = pyro.sample('reads', dist.NegativeBinomial(nb_r, probs=nb_p), obs=data)
 
 
     def run_pyro_model(self):
@@ -358,9 +467,6 @@ class pyro_infer_scRT():
         logging.info('-' * 40)
         model_s = self.model_s
         model_g1 = self.model_g1
-
-        optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
-        elbo = JitTraceEnum_ELBO(max_plate_nesting=2)
 
         cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, \
             cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, \
@@ -405,13 +511,11 @@ class pyro_infer_scRT():
             num_loci, num_cells = cn_s_states.shape
             cn_prior = torch.ones(num_loci, num_cells, self.num_states) / self.num_states
 
-        # TODO: Assign S-phase cells to best G1-phase matching cell
-
-        # guess the initial mean for u assuming that no bins should be replicated
-        u_guess_g1 = torch.mean(cn_g1_reads) / torch.mean(cn_g1_states)
-
-        # TODO: fit GC params using G1-phase cells    
+        # fit GC params using G1-phase cells    
         guide_g1 = AutoDelta(poutine.block(model_g1, expose_fn=lambda msg: msg["name"].startswith("expose_")))
+
+        optim = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
+        elbo = JitTrace_ELBO(max_plate_nesting=2)
 
         svi = SVI(model_g1, guide_g1, optim, loss=elbo)
 
@@ -419,7 +523,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for G1-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi.step(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+            loss = svi.step(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -433,19 +537,18 @@ class pyro_infer_scRT():
 
 
         # replay model
-        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
         trained_model_g1 = poutine.replay(model_g1, trace=guide_trace_g1)
 
         # infer discrete sites and get model trace
         inferred_model_g1 = infer_discrete(
             trained_model_g1, temperature=0,
             first_available_dim=-3)
-        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads, u_guess=u_guess_g1)
+        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gc_profile, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
 
         # extract fitted parameters
         nb_r_fit = trace_g1.nodes['expose_nb_r']['value'].detach()
         betas_fit = trace_g1.nodes['expose_betas']['value'].detach()
-        u_fit = trace_g1.nodes['expose_u']['value'].detach()
         beta_means_fit = trace_g1.nodes['expose_beta_means']['value'].detach()
         beta_stds_fit = trace_g1.nodes['expose_beta_stds']['value'].detach()
 
@@ -464,23 +567,23 @@ class pyro_infer_scRT():
             model_s,
             data={
                 'expose_beta_means': beta_means_fit,
-                'expose_beta_stds': beta_stds_fit
+                'expose_beta_stds': beta_stds_fit,
+                'expose_nb_r': nb_r_fit
             })
 
+        # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
+        t_init, t_alpha_prior, t_beta_prior = self.guess_times(cn_s_reads, cn_prior)
 
         guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
         elbo_s = JitTraceEnum_ELBO(max_plate_nesting=2)
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
-        # guess the initial mean for u assuming that half the bins should be replicated
-        u_guess_s = torch.mean(cn_s_reads) / (1.5 * torch.mean(cn_g1_states))
-
         # start inference
         logging.info('Start inference for S-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+            loss = svi_s.step(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, t_init=t_init)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -493,14 +596,14 @@ class pyro_infer_scRT():
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, t_init=t_init)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, u_guess=u_guess_s, nb_r_guess=nb_r_fit)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gc_profile, libs_s, data=cn_s_reads, cn_prior=cn_prior, t_init=t_init)
 
         # extract fitted parameters
         nb_r_fit_s = trace_s.nodes['expose_nb_r']['value']
