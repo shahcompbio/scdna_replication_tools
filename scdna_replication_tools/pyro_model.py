@@ -111,10 +111,10 @@ class pyro_infer_scRT():
         cn_s_reads_df = self.cn_s.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.input_col)
         cn_s_states_df = self.cn_s.pivot_table(index=self.cell_col, columns=[self.chr_col, self.start_col], values=self.cn_state_col)
 
-        cn_g1_reads_df = cn_g1_reads_df.dropna()
-        cn_g1_states_df = cn_g1_states_df.dropna()
-        cn_s_reads_df = cn_s_reads_df.dropna()
-        cn_s_states_df = cn_s_states_df.dropna()
+        cn_g1_reads_df = cn_g1_reads_df.dropna(axis=1)
+        cn_g1_states_df = cn_g1_states_df.dropna(axis=1)
+        cn_s_reads_df = cn_s_reads_df.dropna(axis=1)
+        cn_s_states_df = cn_s_states_df.dropna(axis=1)
 
         assert cn_g1_states_df.shape == cn_g1_reads_df.shape
         assert cn_s_reads_df.shape[1] == cn_g1_reads_df.shape[1]

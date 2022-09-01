@@ -97,13 +97,13 @@ def compute_ccc_features(cn, cell_col='cell_id', rpm_col='rpm', clone_col='clone
     # merge cn with cell features to get corrected madn and breakpoint values
     cn_out = pd.merge(cn, cell_features)
 
-    return cn_out
+    return cn_out, cell_features
 
 
 def main():
     argv = get_args()
     cn = pd.read_csv(argv.input, sep='\t')
-    cn = compute_ccc_features(cn)
+    cn, cell_features = compute_ccc_features(cn)
     cn.to_csv(argv.output, sep='\t', index=False)
 
 
