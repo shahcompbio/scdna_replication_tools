@@ -108,7 +108,7 @@ class scRT:
 
         # run pyro model to get replication timing states
         pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
-                                     clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col,
+                                     clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col, assign_col=self.assign_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
                                      learning_rate=learning_rate, max_iter=max_iter, min_iter=min_iter, rel_tol=rel_tol,

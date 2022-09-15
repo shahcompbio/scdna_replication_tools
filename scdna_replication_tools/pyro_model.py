@@ -21,6 +21,7 @@ from scipy.stats import skew
 from scipy.spatial.distance import cityblock
 
 from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles
+from scdna_replication_tools.normalize_by_cell import compute_cell_corrs
 
 logging.basicConfig(format='%(relativeCreated) 9d %(message)s', level=logging.DEBUG)
 
@@ -35,8 +36,8 @@ log.addHandler(debug_handler)
 
 class pyro_infer_scRT():
     def __init__(self, cn_s, cn_g1, input_col='reads', gc_col='gc', rt_prior_col='mcf7rt',
-                 clone_col='clone_id', cell_col='cell_id', library_col='library_id',
-                 chr_col='chr', start_col='start', cn_state_col='state',
+                 clone_col='clone_id', cell_col='cell_id', library_col='library_id', 
+                 chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='hmmcopy',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
                  cuda=False, seed=0, num_states=13, poly_degree=4, gamma=6):
@@ -53,6 +54,7 @@ class pyro_infer_scRT():
         :param chr_col: column for chromosome of each bin. (str)
         :param start_col: column for start position of each bin. (str)
         :param cn_state_col: column for the HMMcopy-determined somatic copy number state of each bin; only needs to be present in cn_g1. (str)
+        :param assign_col: column used for assigning S-phase cells to their closest matching G1-phase cells when constructing the cn_prior. (str)
         :param rs_col: output column added containing the replication state of each bin for S-phase cells. (str)
         :param frac_rt_col: column added containing the fraction of replciated bins for each S-phase cell. (str)
         :param cn_prior_method: Method for building the cn prior. Options are 'hmmcopy', 'g1_cells', 'g1_clones', 'diploid'. (str)
@@ -76,6 +78,7 @@ class pyro_infer_scRT():
         self.chr_col = chr_col
         self.start_col = start_col
         self.cn_state_col = cn_state_col
+        self.assign_col = assign_col
 
         self.rs_col = rs_col
         self.frac_rt_col = frac_rt_col
@@ -483,8 +486,35 @@ class pyro_infer_scRT():
             cn_prior = self.build_cn_prior(cn_s_states)
         elif self.cn_prior_method == 'g1_cells':
             # use G1-phase cell that has highest correlation to each S-phase cell as prior
-            raise ValueError("g1_cells method not implemented yet")
-            cn_prior = ...
+            # raise ValueError("g1_cells method not implemented yet")
+
+            cn_prior_input = torch.zeros(cn_s_states.shape)
+            # loop through all S-phase cells
+            for i, cell_id in enumerate(cn_s_reads_df.columns):
+                cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
+
+                # shrink set of G1 cells to those in the matching clone if clone_id has already been assigned
+                # for this S-phase cell
+                if self.clone_col is not None:
+                    clone_id = cell_cn[self.clone_col].values[0]
+                    clone_cn_g1 = self.cn_g1.loc[self.cn_g1[self.clone_col]==clone_id]
+                else:
+                    clone_cn_g1 = self.cn_g1
+                cell_cn = cell_cn[[self.chr_col, self.start_col, self.cell_col, self.input_col, self.cn_state_col]]
+                
+                # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
+                cell_corrs = compute_cell_corrs(cell_cn, clone_cn_g1, cell_id, col=self.input_col,
+                                                cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
+                
+                # get data from the G1 cell that matches best
+                g1_cell_id = cell_corrs.iloc[0].g1_cell_id
+                g1_cell_cn = clone_cn_g1.loc[clone_cn_g1[self.cell_col]==g1_cell_id]
+
+                # extract the cn_state profile from this best matching G1 cell
+                cn_prior_input[:, i] = torch.tensor(g1_cell_cn[self.cn_state_col].values).to(torch.int64).to(torch.float32)
+
+            # build a proper prior over num_states using the consensus clone cn calls for each cell
+            cn_prior = self.build_cn_prior(cn_prior_input)
         elif self.cn_prior_method == 'g1_clones':
             # use G1-phase clone that has highest correlation to each S-phase cell as prior
             # compute consensuse clone profiles for cn state
