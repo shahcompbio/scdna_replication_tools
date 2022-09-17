@@ -253,7 +253,9 @@ class pyro_infer_scRT():
             g1_cell_cns = np.zeros((num_loci, num_matching_g1_cells))
             for r in range(num_matching_g1_cells):
                 g1_cell_id = cell_corrs.iloc[r].g1_cell_id  # find the cell_id corresponding to this ranked match
-                g1_cell_cns[:, r] = clone_cn_g1.loc[clone_cn_g1[self.cell_col]==g1_cell_id]  # save the cn profile of this G1-phase cell
+                g1_cell_cn = clone_cn_g1.loc[clone_cn_g1[self.cell_col]==g1_cell_id]  # save the cn profile of this G1-phase cell
+                temp_cn_profile = g1_cell_cn[self.cn_state_col].values
+                g1_cell_cns[:, r] = temp_cn_profile
 
             # loop through all the loci for this cell and add the appropriate cn_prior weights
             # based on the clone and cell cn profiles
@@ -345,7 +347,10 @@ class pyro_infer_scRT():
         t_beta_prior = torch.zeros(num_cells)
 
         # normalize raw read count by whatever state has the highest probability in the cn prior
-        reads_norm_by_cn = cn_s_reads / torch.argmax(cn_prior, dim=2)
+        # assume cn=0.5 in regions where there is a homozygous deletion
+        ones = torch.ones(cn_s_reads.shape) * 0.5
+        cn_states = torch.argmax(cn_prior, dim=2)
+        reads_norm_by_cn = cn_s_reads / torch.where(cn_states > 0, cn_states, ones)
 
         for i in range(num_cells):
             cell_profile = reads_norm_by_cn[:, i]
