@@ -251,7 +251,7 @@ class pyro_infer_scRT():
 
             # get data from the top 5 G1 cells that best match the S-phase cell
             g1_cell_cns = np.zeros(num_loci, num_matching_g1_cells)
-            for r in num_matching_g1_cells:
+            for r in range(num_matching_g1_cells):
                 g1_cell_id = cell_corrs.iloc[r].g1_cell_id  # find the cell_id corresponding to this ranked match
                 g1_cell_cns[:, r] = clone_cn_g1.loc[clone_cn_g1[self.cell_col]==g1_cell_id]  # save the cn profile of this G1-phase cell
 
