@@ -222,6 +222,56 @@ class pyro_infer_scRT():
         return cn_prior
 
 
+    def build_composite_cn_prior(self, cn, weight=1e5, num_matching_g1_cells=5):
+        """ Build a cn prior that uses both the consensus G1 clone profile and the closest G1-phase cell profiles. """
+        clone_cn_profiles = compute_consensus_clone_profiles(
+            self.cn_g1, self.cn_state_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
+
+        num_loci, num_cells = cn.shape
+        cn_prior = torch.ones(num_loci, num_cells, self.num_states)
+
+        for n, cell_id in enumerate(cn.columns):
+            cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
+            cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
+            clone_cn_profile = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
+        
+            # shrink set of G1 cells to those in the matching clone if clone_id has already been assigned
+            # for this S-phase cell
+            if self.clone_col is not None:
+                clone_id = cell_cn[self.clone_col].values[0]
+                clone_cn_g1 = self.cn_g1.loc[self.cn_g1[self.clone_col]==clone_id]
+            else:
+                clone_cn_g1 = self.cn_g1
+            
+            # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
+            cell_corrs = compute_cell_corrs(cell_cn, clone_cn_g1, cell_id, col=self.input_col,
+                                            cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col)
+
+            # get data from the top 5 G1 cells that best match the S-phase cell
+            g1_cell_cns = np.zeros(num_loci, num_matching_g1_cells)
+            for r in num_matching_g1_cells:
+                g1_cell_id = cell_corrs.iloc[r].g1_cell_id  # find the cell_id corresponding to this ranked match
+                g1_cell_cns[:, r] = clone_cn_g1.loc[clone_cn_g1[self.cell_col]==g1_cell_id]  # save the cn profile of this G1-phase cell
+
+            # loop through all the loci for this cell and add the appropriate cn_prior weights
+            # based on the clone and cell cn profiles
+            for i in range(num_loci):
+                # add weight for consensus clone profile at this position
+                temp_clone_state = int(clone_cn_profile[i].numpy())
+                temp_weight = weight  * num_matching_g1_cells * 2
+                cn_prior[i, n, temp_clone_state] += temp_weight
+
+                # loop through top 5 matching G1-phase cells and add weight for those states too
+                for r in range(num_matching_g1_cells):
+                    temp_cell_state = int(g1_cell_cns[i, r])
+                    temp_weight = weight * (num_matching_g1_cells - r)
+                    cn_prior[i, n, temp_cell_state] += temp_weight
+
+            return cn_prior
+
+
     def manhattan_binarization(self, X, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
         """ Binarize X into binary replicated vs unreplicated states by drawing an optimal threshold through X that minimizes the manhattan distance of all points. """
         # center and scale the data
@@ -531,6 +581,9 @@ class pyro_infer_scRT():
             
             # build a proper prior over num_states using the consensus clone cn calls for each cell
             cn_prior = self.build_cn_prior(cn_prior_input)
+        elif self.cn_prior_method == 'g1_composite':
+            # use a composite of the principles in g1_clones and g1_cells to construct the prior
+            cn_prior = self.build_composite_cn_prior(cn_s_reads_df)
         elif self.cn_prior_method == 'diploid':
             # assume that every S-phase cell has a diploid prior
             num_loci, num_cells = cn_s_states.shape
