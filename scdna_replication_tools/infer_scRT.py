@@ -107,6 +107,7 @@ class scRT:
         print('clone_profiles after assigning to clones\n', self.clone_profiles)
 
         # run pyro model to get replication timing states
+        print('using {} as cn_prior_method'.format(self.cn_prior_method))
         pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col, assign_col=self.assign_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,

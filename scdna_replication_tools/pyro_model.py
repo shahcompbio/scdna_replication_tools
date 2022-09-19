@@ -20,7 +20,7 @@ from sklearn.mixture import GaussianMixture
 from scipy.stats import skew
 from scipy.spatial.distance import cityblock
 
-from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles
+from scdna_replication_tools.compute_consensus_clone_profiles import compute_consensus_clone_profiles, add_cell_ploidies, filter_ploidies
 from scdna_replication_tools.normalize_by_cell import compute_cell_corrs
 
 logging.basicConfig(format='%(relativeCreated) 9d %(message)s', level=logging.DEBUG)
@@ -244,6 +244,14 @@ class pyro_infer_scRT():
                 clone_cn_g1 = self.cn_g1.loc[self.cn_g1[self.clone_col]==clone_id]
             else:
                 clone_cn_g1 = self.cn_g1
+
+            # filter G1-phase cells based on ploidy
+            # remove cells from certain clones that don't belong to the majority ploidy
+            # i.e. remove tetraploid cells if clone is 90% diploid
+            ploid_col = 'ploidy'
+            if ploid_col not in clone_cn_g1.columns:
+                clone_cn_g1 = add_cell_ploidies(clone_cn_g1, cell_col=self.cell_col, cn_state_col=self.cn_state_col, ploidy_col=ploidy_col)
+            clone_cn_g1 = filter_ploidies(clone_cn_g1, clone_col=self.clone_col, ploidy_col=ploidy_col)
             
             # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
             cell_corrs = compute_cell_corrs(cell_cn, clone_cn_g1, cell_id, col=self.input_col,
@@ -271,7 +279,7 @@ class pyro_infer_scRT():
                     temp_weight = weight * (num_matching_g1_cells - r)
                     cn_prior[i, n, temp_cell_state] += temp_weight
 
-            return cn_prior
+        return cn_prior
 
 
     def manhattan_binarization(self, X, MEAN_GAP_THRESH=0.7, EARLY_S_SKEW_THRESH=0.2, LATE_S_SKEW_THRESH=-0.2):
@@ -348,9 +356,12 @@ class pyro_infer_scRT():
 
         # normalize raw read count by whatever state has the highest probability in the cn prior
         # assume cn=0.5 in regions where there is a homozygous deletion
-        ones = torch.ones(cn_s_reads.shape) * 0.5
-        cn_states = torch.argmax(cn_prior, dim=2)
-        reads_norm_by_cn = cn_s_reads / torch.where(cn_states > 0, cn_states, ones)
+        ones = (torch.ones(cn_s_reads.shape) * 0.5).type(torch.float32)
+        cn_states = torch.argmax(cn_prior, dim=2).type(torch.float32)
+        print('cn_states', cn_states[:10, :10])
+        print('cn_states.shape', cn_states.shape)
+        print('cn_states.dtype', cn_states.dtype)
+        reads_norm_by_cn = cn_s_reads / torch.where(cn_states > 0.0, cn_states, ones)
 
         for i in range(num_cells):
             cell_profile = reads_norm_by_cn[:, i]
@@ -418,6 +429,8 @@ class pyro_infer_scRT():
                 time = pyro.sample('expose_time', dist.Beta(t_alpha_prior, t_beta_prior))
             elif t_init is not None:
                 time = pyro.param('expose_time', t_init, constraint=constraints.unit_interval)
+                print('time', time, sep='\n')
+                print('time.shape', time.shape)
             else:
                 time = pyro.sample('expose_time', dist.Beta(torch.tensor([1.5]), torch.tensor([1.5])))
             
@@ -427,10 +440,15 @@ class pyro_infer_scRT():
                 cell_ploidies = torch.mean(cn0.type(torch.float32), dim=0)
             elif cn_prior is not None:
                 temp_cn0 = torch.argmax(cn_prior, dim=2).type(torch.float32)
+                print('temp_cn0.shape', temp_cn0.shape)
+                print('temp_cn0.dtype', temp_cn0.dtype)
+                print('temp_cn0.head', temp_cn0[:10, :10])
                 cell_ploidies = torch.mean(temp_cn0, dim=0)
+                print('cell_ploidies', cell_ploidies, sep='\n')
             else:
                 cell_ploidies = torch.ones(num_cells) * 2.
             u_guess = torch.mean(data.type(torch.float32), dim=0) / ((1 + time) * cell_ploidies)
+            print('u_guess', u_guess, sep='\n')
             u_stdev = u_guess / 10.
         
             u = pyro.sample('expose_u', dist.Normal(u_guess, u_stdev))
@@ -598,6 +616,10 @@ class pyro_infer_scRT():
             # assume uniform prior otherwise
             num_loci, num_cells = cn_s_states.shape
             cn_prior = torch.ones(num_loci, num_cells, self.num_states) / self.num_states
+
+        print('cn_prior.shape', cn_prior.shape)
+        print('cn_prior.dtype', cn_prior.dtype)
+        print('cn_prior.head', cn_prior[:10, :10], sep='\n')
 
         # fit GC params using G1-phase cells    
         guide_g1 = AutoDelta(poutine.block(model_g1, expose_fn=lambda msg: msg["name"].startswith("expose_")))
