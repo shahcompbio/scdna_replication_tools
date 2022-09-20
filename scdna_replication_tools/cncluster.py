@@ -104,17 +104,17 @@ def kmeans_cluster(
 
     model = kmeans[opt_k]
 
-    embedding = umap.UMAP(
-        n_neighbors=15,
-        min_dist=0.1,
-        n_components=2,
-        random_state=42,
-        metric='euclidean',
-    ).fit_transform(cn.fillna(0).values.T)
+    # embedding = umap.UMAP(
+    #     n_neighbors=15,
+    #     min_dist=0.1,
+    #     n_components=2,
+    #     random_state=42,
+    #     metric='euclidean',
+    # ).fit_transform(cn.fillna(0).values.T)
 
     clusters = pd.DataFrame({
         'cell_id': cn.columns, 'cluster_id': model.labels_,
-        'umap1': embedding[:, 0], 'umap2': embedding[:, 1]
+        # 'umap1': embedding[:, 0], 'umap2': embedding[:, 1]
     })
 
     return clusters

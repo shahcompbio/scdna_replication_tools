@@ -248,8 +248,8 @@ class pyro_infer_scRT():
             # filter G1-phase cells based on ploidy
             # remove cells from certain clones that don't belong to the majority ploidy
             # i.e. remove tetraploid cells if clone is 90% diploid
-            ploid_col = 'ploidy'
-            if ploid_col not in clone_cn_g1.columns:
+            ploidy_col = 'ploidy'
+            if ploidy_col not in clone_cn_g1.columns:
                 clone_cn_g1 = add_cell_ploidies(clone_cn_g1, cell_col=self.cell_col, cn_state_col=self.cn_state_col, ploidy_col=ploidy_col)
             clone_cn_g1 = filter_ploidies(clone_cn_g1, clone_col=self.clone_col, ploidy_col=ploidy_col)
             

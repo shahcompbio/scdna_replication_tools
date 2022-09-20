@@ -25,7 +25,8 @@ class scRT:
     def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id', ploidy_col='ploidy',
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
-                 cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh'):
+                 cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
+                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, num_states=13, poly_degree=4, gamma=6):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -48,9 +49,6 @@ class scRT:
         self.ploidy_col = ploidy_col
         self.rt_prior_col = rt_prior_col
 
-        # method for computing cn prior in pyro model
-        self.cn_prior_method = cn_prior_method
-
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
 
@@ -71,6 +69,18 @@ class scRT:
         self.bulk_cn = None
         self.manhattan_df = None
 
+        # class objects that are specific to the pyro model
+        self.cn_prior_method = cn_prior_method
+        self.learning_rate = learning_rate
+        self.max_iter = max_iter
+        self.min_iter = min_iter
+        self.rel_tol = rel_tol
+        self.cuda = cuda
+        self.seed = seed
+        self.num_states = num_states
+        self.poly_degree = poly_degree
+        self.gamma = gamma
+
 
     def infer(self, level='cell'):
         if level=='cell':
@@ -89,7 +99,13 @@ class scRT:
                          cuda=False, seed=0, num_states=13, poly_degree=4):
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
-            clusters = kmeans_cluster(self.cn_g1)
+            # convert to table where columns are cells and rows are loci
+            g1_mat = cn.pivot_table(columns=self.cell_col, index=[self.chr_col, self.start_col], values=self.assign_col)
+            
+            # perform kmeans clustering with using bic too pick K
+            clusters = kmeans_cluster(g1_mat, max_k=20)
+
+            # merge cluster ids into cn_g1 and note the new clone_col
             self.cn_g1 = pd.merge(self.cn_g1, clusters, on=self.cell_col)
             self.clone_col = 'cluster_id'
 
@@ -112,8 +128,8 @@ class scRT:
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col, assign_col=self.assign_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
-                                     learning_rate=learning_rate, max_iter=max_iter, min_iter=min_iter, rel_tol=rel_tol,
-                                     cuda=cuda, seed=seed, num_states=num_states, poly_degree=poly_degree)
+                                     learning_rate=self.learning_rate, max_iter=self.max_iter, min_iter=self.min_iter, rel_tol=self.rel_tol,
+                                     cuda=self.cuda, seed=self.seed, num_states=self.num_states, poly_degree=self.poly_degree)
 
         self.cn_s  = pyro_model.run_pyro_model()
 
