@@ -229,6 +229,15 @@ class pyro_infer_scRT():
             start_col=self.start_col, cn_state_col=self.cn_state_col
         )
 
+        temp_cn_g1 = self.cn_g1.copy()
+
+        # remove G1 cells from certain clones that don't belong to the majority ploidy
+        # i.e. remove tetraploid cells if clone is 90% diploid
+        ploidy_col = 'ploidy'
+        if ploidy_col not in temp_cn_g1.columns:
+            temp_cn_g1 = add_cell_ploidies(temp_cn_g1, cell_col=self.cell_col, cn_state_col=self.cn_state_col, ploidy_col=ploidy_col)
+        temp_cn_g1 = filter_ploidies(temp_cn_g1, clone_col=self.clone_col, ploidy_col=ploidy_col)
+
         num_loci, num_cells = cn.shape
         cn_prior = torch.ones(num_loci, num_cells, self.num_states)
 
@@ -241,17 +250,9 @@ class pyro_infer_scRT():
             # for this S-phase cell
             if self.clone_col is not None:
                 clone_id = cell_cn[self.clone_col].values[0]
-                clone_cn_g1 = self.cn_g1.loc[self.cn_g1[self.clone_col]==clone_id]
+                clone_cn_g1 = temp_cn_g1.loc[temp_cn_g1[self.clone_col]==clone_id]
             else:
-                clone_cn_g1 = self.cn_g1
-
-            # filter G1-phase cells based on ploidy
-            # remove cells from certain clones that don't belong to the majority ploidy
-            # i.e. remove tetraploid cells if clone is 90% diploid
-            ploidy_col = 'ploidy'
-            if ploidy_col not in clone_cn_g1.columns:
-                clone_cn_g1 = add_cell_ploidies(clone_cn_g1, cell_col=self.cell_col, cn_state_col=self.cn_state_col, ploidy_col=ploidy_col)
-            clone_cn_g1 = filter_ploidies(clone_cn_g1, clone_col=self.clone_col, ploidy_col=ploidy_col)
+                clone_cn_g1 = temp_cn_g1
             
             # compute pearson correlations between this S-phase cell and all G1-phase cells in the same clone
             cell_corrs = compute_cell_corrs(cell_cn, clone_cn_g1, cell_id, col=self.input_col,
@@ -358,9 +359,6 @@ class pyro_infer_scRT():
         # assume cn=0.5 in regions where there is a homozygous deletion
         ones = (torch.ones(cn_s_reads.shape) * 0.5).type(torch.float32)
         cn_states = torch.argmax(cn_prior, dim=2).type(torch.float32)
-        print('cn_states', cn_states[:10, :10])
-        print('cn_states.shape', cn_states.shape)
-        print('cn_states.dtype', cn_states.dtype)
         reads_norm_by_cn = cn_s_reads / torch.where(cn_states > 0.0, cn_states, ones)
 
         for i in range(num_cells):
@@ -429,8 +427,6 @@ class pyro_infer_scRT():
                 time = pyro.sample('expose_time', dist.Beta(t_alpha_prior, t_beta_prior))
             elif t_init is not None:
                 time = pyro.param('expose_time', t_init, constraint=constraints.unit_interval)
-                print('time', time, sep='\n')
-                print('time.shape', time.shape)
             else:
                 time = pyro.sample('expose_time', dist.Beta(torch.tensor([1.5]), torch.tensor([1.5])))
             
@@ -440,15 +436,10 @@ class pyro_infer_scRT():
                 cell_ploidies = torch.mean(cn0.type(torch.float32), dim=0)
             elif cn_prior is not None:
                 temp_cn0 = torch.argmax(cn_prior, dim=2).type(torch.float32)
-                print('temp_cn0.shape', temp_cn0.shape)
-                print('temp_cn0.dtype', temp_cn0.dtype)
-                print('temp_cn0.head', temp_cn0[:10, :10])
                 cell_ploidies = torch.mean(temp_cn0, dim=0)
-                print('cell_ploidies', cell_ploidies, sep='\n')
             else:
                 cell_ploidies = torch.ones(num_cells) * 2.
             u_guess = torch.mean(data.type(torch.float32), dim=0) / ((1 + time) * cell_ploidies)
-            print('u_guess', u_guess, sep='\n')
             u_stdev = u_guess / 10.
         
             u = pyro.sample('expose_u', dist.Normal(u_guess, u_stdev))
@@ -548,9 +539,6 @@ class pyro_infer_scRT():
             cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, \
             gc_profile, rt_prior_profile, libs_g1, libs_s = self.process_input_data()
 
-        print('libs_g1', libs_g1)
-        print('libs_s', libs_s)
-
         # build transition matrix and cn prior for S-phase cells
         trans_mat = self.build_trans_mat(cn_g1_states)
 
@@ -616,10 +604,6 @@ class pyro_infer_scRT():
             # assume uniform prior otherwise
             num_loci, num_cells = cn_s_states.shape
             cn_prior = torch.ones(num_loci, num_cells, self.num_states) / self.num_states
-
-        print('cn_prior.shape', cn_prior.shape)
-        print('cn_prior.dtype', cn_prior.dtype)
-        print('cn_prior.head', cn_prior[:10, :10], sep='\n')
 
         # fit GC params using G1-phase cells    
         guide_g1 = AutoDelta(poutine.block(model_g1, expose_fn=lambda msg: msg["name"].startswith("expose_")))
@@ -750,8 +734,6 @@ class pyro_infer_scRT():
         cn_s_out = pd.merge(cn_s_out, bulk_rt_out)
         cn_s_out['model_nb_r_s'] = nb_r_fit_s.detach().numpy()[0]
         cn_s_out['model_a'] = a_fit_s.detach().numpy()[0]
-        print('beta_means_fit.shape', beta_means_fit.shape)
-        print('beta_stds_fit.shape', beta_stds_fit.shape)
         for i in range(self.poly_degree):
             for j in range(self.num_libraries):
                 cn_s_out['model_gc_beta{}_mean_library{}'.format(i, j)] = beta_means_fit.numpy()[j, i]
