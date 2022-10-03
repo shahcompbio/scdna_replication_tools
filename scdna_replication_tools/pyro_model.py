@@ -621,8 +621,8 @@ class pyro_infer_scRT():
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
-                loss_diff = abs(max(losses[-10:-1]) - min(losses[-10:-1])) / abs(losses[-1])
-                if loss_diff < 5e-5:
+                loss_diff = abs(max(losses[-10:-1]) - min(losses[-10:-1])) / abs(losses[0] - losses[-1])
+                if loss_diff < 1e-6:
                     print('ELBO converged at iteration ' + str(i))
                     break
 
