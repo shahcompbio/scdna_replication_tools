@@ -42,6 +42,7 @@ cryptography==2.8
 -e git+https://github.com/mondrian-scwgs/csverve.git@1dd3cde7e461d354a7c91539c09d145ec9f65254#egg=csverve
 cycler==0.10.0
 Cython==0.29.22
+daft==0.1.2
 decorator==4.4.1
 defusedxml==0.6.0
 dill==0.3.1.1
