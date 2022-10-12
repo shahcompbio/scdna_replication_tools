@@ -184,6 +184,7 @@ sorted-nearest==0.0.33
 Sphinx==1.8.5
 sphinxcontrib-serializinghtml==1.1.5
 sphinxcontrib-websupport==1.2.4
+statannot==0.2.3
 statsmodels==0.12.2
 subprocess32==3.5.3
 tables==3.6.1
