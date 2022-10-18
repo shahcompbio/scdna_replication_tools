@@ -198,9 +198,8 @@ class scRT:
 
         # normalize by clone
         self.cn_s = normalize_by_clone(self.cn_s, self.clone_profiles_gc_norm, input_col=self.col2, clone_col=self.clone_col,
-                                       temp_col=self.col3, output_col=self.rv_col, seg_col=self.col4,
-                                       cell_col=self.cell_col, chr_col=self.chr_col, start_col=self.start_col,
-                                       cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
+                                       output_col=self.rv_col, cell_col=self.cell_col, chr_col=self.chr_col,
+                                       start_col=self.start_col, cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
 
         # binarize
         self.cn_s, self.manhattan_df = binarize_profiles(
@@ -229,8 +228,8 @@ class scRT:
 
         # normalize by the pseudobulk profile
         self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=dummy_clone_col,
-                                       cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col, temp_col=self.col3, 
-                                       output_col=self.rv_col, seg_col=self.col4)
+                                       output_col=self.rv_col, cell_col=self.cell_col, chr_col=self.chr_col,
+                                       start_col=self.start_col, cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
 
         # binarize
         self.cn_s, self.manhattan_df = binarize_profiles(
