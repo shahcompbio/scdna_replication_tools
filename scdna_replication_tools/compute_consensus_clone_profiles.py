@@ -63,7 +63,8 @@ def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', cell_co
     # print('cn.head 1\n', cn.head())
 
     # add ploidy values for each cell
-    cn = add_cell_ploidies(cn, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
+    if cn_state_col is not None:
+        cn = add_cell_ploidies(cn, cell_col=cell_col, cn_state_col=cn_state_col, ploidy_col=ploidy_col)
 
     # print('cn.columns 2\n', cn.columns)
     # print('cn.head 2\n', cn.head())
@@ -76,7 +77,8 @@ def compute_consensus_clone_profiles(cn, col_name, clone_col='clone_id', cell_co
 
     # remove cells from certain clones that don't belong to the majority ploidy
     # i.e. remove tetraploid cells if clone is 90% diploid
-    cn = filter_ploidies(cn, clone_col=clone_col, ploidy_col=ploidy_col)
+    if cn_state_col is not None:
+        cn = filter_ploidies(cn, clone_col=clone_col, ploidy_col=ploidy_col)
 
     # pivot long-form df to matrix and aggregate by clone_col
     clone_profiles = cn.pivot_table(

@@ -40,7 +40,7 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                 cuda=False, seed=0, P=13, K=4, gamma=6):
+                 cuda=False, seed=0, P=13, K=4, upsilon=6):
         '''
         initialise the pyro_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -66,7 +66,7 @@ class pyro_infer_scRT():
         :param P: number of integer copy number states to include in the model, values range from 0 to P-1. (int)
         :param L: number of libraries. (int)
         :param K: maximum polynomial degree allowed for the GC bias curve. (int)
-        :param gamma: value that alpha and beta should sum to when creating a beta distribution prior for tau. (int)
+        :param upsilon: value that alpha and beta terms should sum to when creating a beta distribution prior for tau. (int)
         '''
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
@@ -98,7 +98,7 @@ class pyro_infer_scRT():
         self.L = None
         self.K = K
 
-        self.gamma = gamma
+        self.upsilon = upsilon
 
 
     def process_input_data(self):
@@ -375,9 +375,9 @@ class pyro_infer_scRT():
             t_init[i] = t_guess
             
             # use t_guess as the mean of a beta distribution parameterized by alpha and beta
-            # where alpha and beta must sum to gamma
-            alpha = t_guess * self.gamma
-            beta = self.gamma - alpha
+            # where alpha and beta must sum to upsilon
+            alpha = t_guess * self.upsilon
+            beta = self.upsilon - alpha
             t_alpha_prior[i] = alpha
             t_beta_prior[i] = beta
 
@@ -391,7 +391,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gammas, libs, cn0=None, rt0=None, num_cells=None, num_loci=None, data=None, etas=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
+    def model_s(self, gammas, libs, cn0=None, rho0=None, num_cells=None, num_loci=None, data=None, etas=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -475,7 +475,7 @@ class pyro_infer_scRT():
                 chi = cn * (1. + rep)
 
                 # find the gc bias rate of each bin using betas
-                gc_features = self.make_gc_features(gammas).reshape(num_loci, 1, self.k+1)
+                gc_features = self.make_gc_features(gammas).reshape(num_loci, 1, self.K+1)
                 omega = torch.exp(torch.sum(torch.mul(betas, gc_features), 2))
 
                 # expected reads per bin per cell
@@ -747,11 +747,41 @@ class pyro_infer_scRT():
         cn_s_out = pd.merge(cn_s_out, taus_out)
         cn_s_out = pd.merge(cn_s_out, Us_out)
         cn_s_out = pd.merge(cn_s_out, rho_out)
-        cn_s_out['model_lambda'] = lambda_fit_s.detach().numpy()[0]
-        cn_s_out['model_a'] = a_fit_s.detach().numpy()[0]
-        for i in range(self.K):
-            for j in range(self.L):
-                cn_s_out['model_gc_beta{}_mean_library{}'.format(i, j)] = beta_means_fit.numpy()[j, i]
-                cn_s_out['model_gc_beta{}_stds_library{}'.format(i, j)] = beta_stds_fit.numpy()[j, i]
+
+        # create a separate df containing library- and sample-level params
+        supp_out_df = []
+
+        # add global lambda parameter
+        supp_out_df.append(pd.DataFrame({
+            'param': ['model_lambda'],
+            'level': ['all'],
+            'value': [lambda_fit_s.detach().numpy()[0]]
+        }))
+
+        # add global alpha parameter
+        supp_out_df.append(pd.DataFrame({
+            'param': ['model_a'],
+            'level': ['all'],
+            'value': [a_fit_s.detach().numpy()[0]]
+        }))
+
+        for k in range(self.K):
+            for l in range(self.L):
+
+                # add mean beta coeff for this degree k and library l
+                supp_out_df.append(pd.DataFrame({
+                    'param': ['model_gc_beta{}_mean'.format(k)],
+                    'level': ['library{}'.format(l)],
+                    'value': [beta_means_fit.numpy()[l, k]]
+                }))
+
+                # add stdev beta coeff for this degree k and library l
+                supp_out_df.append(pd.DataFrame({
+                    'param': ['model_gc_beta{}_std'.format(k)],
+                    'level': ['library{}'.format(l)],
+                    'value': [beta_stds_fit.numpy()[l, k]]
+                }))
+
+        supp_out_df = pd.concat(supp_out_df, ignore_index=True)
         
-        return cn_s_out
+        return cn_s_out, supp_out_df

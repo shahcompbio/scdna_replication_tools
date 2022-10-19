@@ -19,6 +19,7 @@ def get_args():
     p.add_argument('s_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for s-phase cells')
     p.add_argument('g1_phase_cells', help='copynumber tsv file with state, copy, clone_id, etc for g1-phase cells')
     p.add_argument('output', help='same as s_phase_cells input but with inferred scRT info added')
+    p.add_argument('supp_output', help='sample and library parameters infered by the pyro model')
 
 
 class scRT:
@@ -26,7 +27,7 @@ class scRT:
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
-                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, num_states=13, poly_degree=4, gamma=6):
+                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4, upsilon=6):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -77,12 +78,13 @@ class scRT:
         self.rel_tol = rel_tol
         self.cuda = cuda
         self.seed = seed
-        self.num_states = num_states
-        self.poly_degree = poly_degree
-        self.gamma = gamma
+        self.P = P  # number of CN states
+        self.K = K  # polynomial degree
+        self.upsilon = upsilon
 
 
     def infer(self, level='cell'):
+        supp_out_df = pd.DataFrame({})  # set as empty dataframe when pyro model isn't used
         if level=='cell':
             self.cn_s = self.infer_cell_level()
         elif level=='clone':
@@ -90,13 +92,13 @@ class scRT:
         elif level=='bulk':
             self.cn_s = self.infer_bulk_level()
         elif level=='pyro':
-            self.cn_s = self.infer_pyro_model()
+            self.cn_s, supp_out_df = self.infer_pyro_model()
 
-        return self.cn_s
+        return self.cn_s, supp_out_df
 
 
     def infer_pyro_model(self, learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                         cuda=False, seed=0, num_states=13, poly_degree=4):
+                         cuda=False, seed=0, P=13, K=4):
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             # convert to table where columns are cells and rows are loci
@@ -129,11 +131,11 @@ class scRT:
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
                                      learning_rate=self.learning_rate, max_iter=self.max_iter, min_iter=self.min_iter, rel_tol=self.rel_tol,
-                                     cuda=self.cuda, seed=self.seed, num_states=self.num_states, poly_degree=self.poly_degree)
+                                     cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon)
 
-        self.cn_s  = pyro_model.run_pyro_model()
+        self.cn_s, supp_out_df  = pyro_model.run_pyro_model()
 
-        return self.cn_s
+        return self.cn_s, supp_out_df
 
 
     def infer_cell_level(self):
@@ -217,17 +219,17 @@ class scRT:
         self.cn_s.loc[self.cn_s.index, dummy_clone_col] = '1'
 
         # GC correction
-        self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
-                                                      cell_col=self.cell_col, library_col=self.library_col, output_col=self.col2)
+        # self.cn_s, self.cn_g1 = bulk_g1_gc_correction(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col,
+        #                                               cell_col=self.cell_col, library_col=self.library_col, output_col=self.col2)
 
-        # compute pseudobulk profile for GC-normed read depth
-        self.bulk_profile_gc_norm = compute_consensus_clone_profiles(
-            self.cn_g1, self.col2, clone_col=dummy_clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
-            start_col=self.start_col, cn_state_col=self.cn_state_col
+        # compute G1/2-phase pseudobulk read depth profile (using input col)
+        self.bulk_profile = compute_consensus_clone_profiles(
+            self.cn_g1, self.input_col, clone_col=dummy_clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=None
         )
 
         # normalize by the pseudobulk profile
-        self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile_gc_norm, input_col=self.col2, clone_col=dummy_clone_col,
+        self.cn_s = normalize_by_clone(self.cn_s, self.bulk_profile, input_col=self.input_col, clone_col=dummy_clone_col,
                                        output_col=self.rv_col, cell_col=self.cell_col, chr_col=self.chr_col,
                                        start_col=self.start_col, cn_state_col=self.cn_state_col, ploidy_col=self.ploidy_col)
 
@@ -268,9 +270,10 @@ def main():
     scrt = scRT(cn_s, cn_g1)
 
     # infer scRT profiles for S-phase cells
-    out_df = scrt.infer()
+    out_df, supp_out_df = scrt.infer()
 
     out_df.to_csv(argv.output, sep='\t', index=False)
+    supp_out_df.to_csv(argv.supp_output, sep='\t', index=False)
 
 
 
