@@ -391,7 +391,7 @@ class pyro_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gammas, libs, cn0=None, rho0=None, num_cells=None, num_loci=None, data=None, etas=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
+    def model_s(self, gammas, libs, cn0=None, rho0=None, num_cells=None, num_loci=None, data=None, etas=None, lamb=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -405,7 +405,8 @@ class pyro_infer_scRT():
         a = pyro.sample('expose_a', dist.Gamma(torch.tensor([2.]), torch.tensor([0.2])))
         
         # variance of negative binomial distribution is governed by the success probability of each trial
-        lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.unit_interval)
+        if lamb is None:
+            lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.unit_interval)
 
         # gc bias params
         beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([self.L, self.K+1]).to_event(2))
@@ -677,7 +678,6 @@ class pyro_infer_scRT():
             data={
                 'expose_beta_means': beta_means_fit,
                 'expose_beta_stds': beta_stds_fit,
-                'expose_lambda': lambda_fit
             })
 
         # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
@@ -692,7 +692,7 @@ class pyro_infer_scRT():
         logging.info('Start inference for S-phase cells.')
         losses = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gammas, libs_s, data=cn_s_reads, etas=etas, t_init=t_init)
+            loss = svi_s.step(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -705,14 +705,14 @@ class pyro_infer_scRT():
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, t_init=t_init)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, t_init=t_init)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
         # extract fitted parameters
         lambda_fit_s = trace_s.nodes['expose_lambda']['value']
