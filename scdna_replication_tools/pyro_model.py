@@ -715,7 +715,6 @@ class pyro_infer_scRT():
         trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
         # extract fitted parameters
-        lambda_fit_s = trace_s.nodes['expose_lambda']['value']
         u_fit_s = trace_s.nodes['expose_u']['value']
         rho_fit_s = trace_s.nodes['expose_rho']['value']
         a_fit_s = trace_s.nodes['expose_a']['value']
@@ -755,7 +754,7 @@ class pyro_infer_scRT():
         supp_out_df.append(pd.DataFrame({
             'param': ['model_lambda'],
             'level': ['all'],
-            'value': [lambda_fit_s.detach().numpy()[0]]
+            'value': [lambda_fit.detach().numpy()[0]]
         }))
 
         # add global alpha parameter
