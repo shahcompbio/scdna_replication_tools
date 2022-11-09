@@ -406,7 +406,7 @@ class pyro_infer_scRT():
         
         # variance of negative binomial distribution is governed by the success probability of each trial
         if lamb is None:
-            lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.unit_interval)
+            lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.interval(0.001, 0.999))
 
         # gc bias params
         beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([self.L, self.K+1]).to_event(2))
@@ -504,7 +504,7 @@ class pyro_infer_scRT():
             assert (data is not None) and (cn is not None)
         
         # variance of negative binomial distribution is governed by the success probability of each trial
-        lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.unit_interval)
+        lamb = pyro.param('expose_lambda', torch.tensor([lambda_init]), constraint=constraints.interval(0.001, 0.999))
 
         # gc bias params
         beta_means = pyro.sample('expose_beta_means', dist.Normal(0., 1.).expand([self.L, self.K+1]).to_event(2))
@@ -631,18 +631,18 @@ class pyro_infer_scRT():
 
         # start inference
         logging.info('Start inference for G1-phase cells.')
-        losses = []
+        losses_g = []
         for i in range(self.max_iter):
             loss = svi.step(gammas, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
-                loss_diff = abs(max(losses[-10:-1]) - min(losses[-10:-1])) / abs(losses[0] - losses[-1])
+                loss_diff = abs(max(losses_g[-10:-1]) - min(losses_g[-10:-1])) / abs(losses_g[0] - losses_g[-1])
                 if loss_diff < 1e-6:
                     print('ELBO converged at iteration ' + str(i))
                     break
 
-            losses.append(loss)
+            losses_g.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
 
 
@@ -690,18 +690,18 @@ class pyro_infer_scRT():
 
         # start inference
         logging.info('Start inference for S-phase cells.')
-        losses = []
+        losses_s = []
         for i in range(self.max_iter):
             loss = svi_s.step(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
-                loss_diff = abs(max(losses[-10:-1]) - min(losses[-10:-1])) / abs(losses[0] - losses[-1])
+                loss_diff = abs(max(losses_s[-10:-1]) - min(losses_s[-10:-1])) / abs(losses_s[0] - losses_s[-1])
                 if loss_diff < 1e-6:
                     print('ELBO converged at iteration ' + str(i))
                     break
 
-            losses.append(loss)
+            losses_s.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
@@ -780,6 +780,20 @@ class pyro_infer_scRT():
                     'level': ['library{}'.format(l)],
                     'value': [beta_stds_fit.numpy()[l, k]]
                 }))
+
+        # add loss for each step in the G1/2-phase model
+        supp_out_df.append(pd.DataFrame({
+            'param': ['loss_g']*len(losses_s),
+            'level': np.arange(len(losses_g)),
+            'value': losses_g
+        }))
+
+        # add loss for each step in the S-phase model
+        supp_out_df.append(pd.DataFrame({
+            'param': ['loss_s']*len(losses_s),
+            'level': np.arange(len(losses_s)),
+            'value': losses_s
+        }))
 
         supp_out_df = pd.concat(supp_out_df, ignore_index=True)
         
