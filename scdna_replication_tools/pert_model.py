@@ -40,7 +40,7 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                 cuda=False, seed=0, P=13, K=4, upsilon=6):
+                 cuda=False, seed=0, P=13, K=4, upsilon=6, look_for_missed_s_cells=True):
         '''
         initialise the pyro_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -67,6 +67,7 @@ class pyro_infer_scRT():
         :param L: number of libraries. (int)
         :param K: maximum polynomial degree allowed for the GC bias curve. (int)
         :param upsilon: value that alpha and beta terms should sum to when creating a beta distribution prior for tau. (int)
+        :param look_for_missed_s_cells: Should the pretrained S-phase model be run on G1/2-phase cells to look for misclassifications. (bool)
         '''
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
@@ -99,6 +100,7 @@ class pyro_infer_scRT():
         self.K = K
 
         self.upsilon = upsilon
+        self.look_for_missed_s_cells = look_for_missed_s_cells
 
 
     def process_input_data(self):
@@ -224,15 +226,25 @@ class pyro_infer_scRT():
         return etas
 
 
-    def build_composite_cn_prior(self, cn, weight=1e5, J=5):
+    def build_clone_cn_prior(self, cn_df, cn_tensor, clone_cn_profiles, weight=1e6):
+        """ Use the pseudobulk clone profiles as the prior concentration for copy number """
+        cn_prior_input = torch.zeros(cn_tensor.shape)
+        for i, cell_id in enumerate(cn_df.columns):
+            cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
+            cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
+            cn_prior_input[:, i] = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
+        
+        # build a proper prior over num_states using the consensus clone cn calls for each cell
+        etas = self.build_cn_prior(cn_prior_input, weight=weight)
+
+        return etas
+
+
+    def build_composite_cn_prior(self, cn, clone_cn_profiles, weight=1e5, J=5):
         """ 
         Build a cn prior concentration matrix that uses both the consensus G1 clone profile and the closest G1-phase cell profiles.
         J represents the number of matching G1-phase cells to use for each S-phase cell.
         """
-        clone_cn_profiles = compute_consensus_clone_profiles(
-            self.cn_g1, self.cn_state_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
-            start_col=self.start_col, cn_state_col=self.cn_state_col
-        )
 
         temp_cn_g1 = self.cn_g1.copy()
 
@@ -388,6 +400,81 @@ class pyro_infer_scRT():
         """Builds features i.e. a matrix with columns [x, x^2, x^3, x^4]."""
         x = x.unsqueeze(1)
         return torch.cat([x ** i for i in reversed(range(0, self.K+1))], 1)
+
+
+    def package_s_output(self, cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s):
+        """ Use model trace to extract all the fitted parameters and store them in DataFrames to be saved. """
+
+        cn_s = cn_s.copy()
+
+        # extract fitted parameters
+        u_fit_s = trace_s.nodes['expose_u']['value']
+        rho_fit_s = trace_s.nodes['expose_rho']['value']
+        a_fit_s = trace_s.nodes['expose_a']['value']
+        tau_fit_s = trace_s.nodes['expose_tau']['value']
+        model_rep = trace_s.nodes['rep']['value']
+        model_cn = trace_s.nodes['cn']['value']
+
+        # add inferred CN and Rep states to the S-phase output df
+        model_cn_df = pd.DataFrame(model_cn.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_rep_df = pd.DataFrame(model_rep.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_cn_df = model_cn_df.melt(ignore_index=False, value_name='model_cn_state').reset_index()
+        model_rep_df = model_rep_df.melt(ignore_index=False, value_name='model_rep_state').reset_index()
+        cn_s_out = pd.merge(cn_s, model_cn_df)
+        cn_s_out = pd.merge(cn_s_out, model_rep_df)
+
+        # add other inferred parameters to cn_s_out
+        taus_out = pd.DataFrame(
+            tau_fit_s.detach().numpy(),
+            index=cn_s_reads_df.columns, 
+            columns=['model_tau']).reset_index()
+        Us_out = pd.DataFrame(
+            u_fit_s.detach().numpy(),
+            index=cn_s_reads_df.columns, 
+            columns=['model_u']).reset_index()
+        rho_out = pd.DataFrame(
+            rho_fit_s.detach().numpy(),
+            index=cn_s_reads_df.index,
+            columns=['model_rho']).reset_index()
+        cn_s_out = pd.merge(cn_s_out, taus_out)
+        cn_s_out = pd.merge(cn_s_out, Us_out)
+        cn_s_out = pd.merge(cn_s_out, rho_out)
+
+        # create a separate df containing library- and sample-level params
+        supp_out_df = []
+
+        # add global lambda parameter
+        supp_out_df.append(pd.DataFrame({
+            'param': ['model_lambda'],
+            'level': ['all'],
+            'value': [lambda_fit.detach().numpy()[0]]
+        }))
+
+        # add global alpha parameter
+        supp_out_df.append(pd.DataFrame({
+            'param': ['model_a'],
+            'level': ['all'],
+            'value': [a_fit_s.detach().numpy()[0]]
+        }))
+
+        # add loss for each step in the G1/2-phase model
+        supp_out_df.append(pd.DataFrame({
+            'param': ['loss_g']*len(losses_g),
+            'level': np.arange(len(losses_g)),
+            'value': losses_g
+        }))
+
+        # add loss for each step in the S-phase model
+        supp_out_df.append(pd.DataFrame({
+            'param': ['loss_s']*len(losses_s),
+            'level': np.arange(len(losses_s)),
+            'value': losses_s
+        }))
+
+        # concatentate into one dataframe
+        supp_out_df = pd.concat(supp_out_df, ignore_index=True)
+
+        return cn_s_out, supp_out_df
 
 
     @config_enumerate
@@ -558,6 +645,12 @@ class pyro_infer_scRT():
         # build transition matrix and cn prior for S-phase cells
         trans_mat = self.build_trans_mat(cn_g1_states)
 
+        # compute consensus clone profiles for cn state
+        clone_cn_profiles = compute_consensus_clone_profiles(
+            self.cn_g1, self.cn_state_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
+            start_col=self.start_col, cn_state_col=self.cn_state_col
+        )
+
         if self.cn_prior_method == 'hmmcopy':
             # use hmmcopy states for the S-phase cells to build the prior
             etas = self.build_cn_prior(cn_s_states)
@@ -594,23 +687,10 @@ class pyro_infer_scRT():
             etas = self.build_cn_prior(cn_prior_input)
         elif self.cn_prior_method == 'g1_clones':
             # use G1-phase clone that has highest correlation to each S-phase cell as prior
-            # compute consensuse clone profiles for cn state
-            clone_cn_profiles = compute_consensus_clone_profiles(
-                self.cn_g1, self.cn_state_col, clone_col=self.clone_col, cell_col=self.cell_col, chr_col=self.chr_col,
-                start_col=self.start_col, cn_state_col=self.cn_state_col
-            )
-
-            cn_prior_input = torch.zeros(cn_s_states.shape)
-            for i, cell_id in enumerate(cn_s_reads_df.columns):
-                cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
-                cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
-                cn_prior_input[:, i] = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
-            
-            # build a proper prior over num_states using the consensus clone cn calls for each cell
-            etas = self.build_cn_prior(cn_prior_input)
+            etas = self.build_clone_cn_prior(cn_s_reads_df, cn_s_states, clone_cn_profiles, weight=1e6)
         elif self.cn_prior_method == 'g1_composite':
             # use a composite of the principles in g1_clones and g1_cells to construct the prior
-            etas = self.build_composite_cn_prior(cn_s_reads_df)
+            etas = self.build_composite_cn_prior(cn_s_reads_df, clone_cn_profiles)
         elif self.cn_prior_method == 'diploid':
             # assume that every S-phase cell has a diploid prior
             num_loci, num_cells = cn_s_states.shape
@@ -714,87 +794,71 @@ class pyro_infer_scRT():
             first_available_dim=-3)
         trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
-        # extract fitted parameters
-        u_fit_s = trace_s.nodes['expose_u']['value']
-        rho_fit_s = trace_s.nodes['expose_rho']['value']
-        a_fit_s = trace_s.nodes['expose_a']['value']
-        tau_fit_s = trace_s.nodes['expose_tau']['value']
-        model_rep = trace_s.nodes['rep']['value']
-        model_cn = trace_s.nodes['cn']['value']
+        # get output dataframes based on learned latent parameters and states
+        cn_s_out, supp_s_out_df = package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s2)
 
-        # add inferred CN and Rep states to the S-phase output df
-        model_cn_df = pd.DataFrame(model_cn.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
-        model_rep_df = pd.DataFrame(model_rep.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
-        model_cn_df = model_cn_df.melt(ignore_index=False, value_name='model_cn_state').reset_index()
-        model_rep_df = model_rep_df.melt(ignore_index=False, value_name='model_rep_state').reset_index()
-        cn_s_out = pd.merge(self.cn_s, model_cn_df)
-        cn_s_out = pd.merge(cn_s_out, model_rep_df)
+        # run pre-trained S-phase model on cells labeled as G1/2-phase to see if
+        # any of them are actually in S-phase
+        if self.look_for_missed_s_cells:
+            # extract parameters learned in S-phase model that need to be conditioned
+            rho_fit_s = trace_s.nodes['expose_rho']['value']
+            a_fit_s = trace_s.nodes['expose_a']['value']
+            
+            pyro.clear_param_store()
+            pyro.enable_validation(__debug__)
 
-        # add other inferred parameters to cn_s_out
-        taus_out = pd.DataFrame(
-            tau_fit_s.detach().numpy(),
-            index=cn_s_reads_df.columns, 
-            columns=['model_tau']).reset_index()
-        Us_out = pd.DataFrame(
-            u_fit_s.detach().numpy(),
-            index=cn_s_reads_df.columns, 
-            columns=['model_u']).reset_index()
-        rho_out = pd.DataFrame(
-            rho_fit_s.detach().numpy(),
-            index=cn_s_reads_df.index,
-            columns=['model_rho']).reset_index()
-        cn_s_out = pd.merge(cn_s_out, taus_out)
-        cn_s_out = pd.merge(cn_s_out, Us_out)
-        cn_s_out = pd.merge(cn_s_out, rho_out)
+            # condition gc betas of S-phase model using fitted results from G1-phase model
+            model_s2 = poutine.condition(
+                self.model_s,
+                data={
+                    'expose_rho': rho_fit_s,
+                    'expose_a': a_fit_s
+                    'expose_beta_means': beta_means_fit,
+                    'expose_beta_stds': beta_stds_fit,
+                })
 
-        # create a separate df containing library- and sample-level params
-        supp_out_df = []
+            # use clone pseudobulk profiles to set the CN prior of each cell
+            etas2 = self.build_clone_cn_prior(cn_g1_reads_df, cn_g1_states, clone_cn_profiles, weight=1e6)
 
-        # add global lambda parameter
-        supp_out_df.append(pd.DataFrame({
-            'param': ['model_lambda'],
-            'level': ['all'],
-            'value': [lambda_fit.detach().numpy()[0]]
-        }))
+            # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
+            t_init2, t_alpha_prior2, t_beta_prior2 = self.guess_times(cn_g1_reads, etas2)
 
-        # add global alpha parameter
-        supp_out_df.append(pd.DataFrame({
-            'param': ['model_a'],
-            'level': ['all'],
-            'value': [a_fit_s.detach().numpy()[0]]
-        }))
+            guide_s2 = AutoDelta(poutine.block(model_s2, expose_fn=lambda msg: msg["name"].startswith("expose_")))
+            optim_s2 = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
+            elbo_s2 = JitTraceEnum_ELBO(max_plate_nesting=2)
+            svi_s2 = SVI(model_s2, guide_s2, optim_s2, loss=elbo_s2)
 
-        for k in range(self.K):
-            for l in range(self.L):
+            # start inference
+            logging.info('Running pre-trained S-phase model on cells initially labeled as G1/2-phase.')
+            losses_s2 = []
+            max_iter2 = max(self.min_iter, int(self.max_iter/2))  # can get away with fewer iters since a and rho are fixed
+            for i in range(max_iter2):
+                loss = svi_s2.step(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
-                # add mean beta coeff for this degree k and library l
-                supp_out_df.append(pd.DataFrame({
-                    'param': ['model_gc_beta{}_mean'.format(k)],
-                    'level': ['library{}'.format(l)],
-                    'value': [beta_means_fit.numpy()[l, k]]
-                }))
+                # fancy convergence check that sees if the past 10 iterations have plateaued
+                if i >= self.min_iter:
+                    loss_diff = abs(max(losses_s2[-10:-1]) - min(losses_s2[-10:-1])) / abs(losses_s2[0] - losses_s2[-1])
+                    if loss_diff < 1e-6:
+                        print('ELBO converged at iteration ' + str(i))
+                        break
 
-                # add stdev beta coeff for this degree k and library l
-                supp_out_df.append(pd.DataFrame({
-                    'param': ['model_gc_beta{}_std'.format(k)],
-                    'level': ['library{}'.format(l)],
-                    'value': [beta_stds_fit.numpy()[l, k]]
-                }))
+                losses_s2.append(loss)
+                logging.info('step: {}, loss: {}'.format(i, loss))
 
-        # add loss for each step in the G1/2-phase model
-        supp_out_df.append(pd.DataFrame({
-            'param': ['loss_g']*len(losses_g),
-            'level': np.arange(len(losses_g)),
-            'value': losses_g
-        }))
+            # replay model
+            guide_trace_s2 = poutine.trace(guide_s2).get_trace(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
+            trained_model_s2 = poutine.replay(model_s2, trace=guide_trace_s2)
 
-        # add loss for each step in the S-phase model
-        supp_out_df.append(pd.DataFrame({
-            'param': ['loss_s']*len(losses_s),
-            'level': np.arange(len(losses_s)),
-            'value': losses_s
-        }))
+            # infer discrete sites and get model trace
+            inferred_model_s2 = infer_discrete(
+                trained_model_s, temperature=0,
+                first_available_dim=-3)
+            trace_s2 = poutine.trace(inferred_model_s2).get_trace(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
-        supp_out_df = pd.concat(supp_out_df, ignore_index=True)
+            # save results for these cells
+            cn_g1_out, supp_g1_out_df = package_s_output(self.cn_g1, trace_s2, cn_g1_reads_df, lambda_fit, losses_g, losses_s2)
+        else:
+            cn_g1_out = None
+            supp_g1_out_df = None 
         
-        return cn_s_out, supp_out_df
+        return cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df

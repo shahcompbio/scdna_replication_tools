@@ -9,7 +9,7 @@ from scdna_replication_tools.binarize_rt_profiles import binarize_profiles
 from scdna_replication_tools.compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from scdna_replication_tools.calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
 from scdna_replication_tools.cncluster import kmeans_cluster
-from scdna_replication_tools.pyro_model import pyro_infer_scRT
+from scdna_replication_tools.pert_model import pyro_infer_scRT
 from argparse import ArgumentParser
 
 
@@ -27,7 +27,8 @@ class scRT:
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
-                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4, upsilon=6):
+                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4,
+                 upsilon=6, ook_for_missed_s_cells=True):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -81,20 +82,24 @@ class scRT:
         self.P = P  # number of CN states
         self.K = K  # polynomial degree
         self.upsilon = upsilon
+        self.look_for_missed_s_cells = look_for_missed_s_cells
 
 
-    def infer(self, level='cell'):
-        supp_out_df = pd.DataFrame({})  # set as empty dataframe when pyro model isn't used
+    def infer(self, level='pyro'):
+        # set as empty dataframe when pyro model isn't used
+        supp_s_out_df = pd.DataFrame({})
+        supp_g1_out_df = pd.DataFrame({})
+        cn_g1_out = pd.DataFrame({})
         if level=='cell':
             self.cn_s = self.infer_cell_level()
         elif level=='clone':
             self.cn_s = self.infer_clone_level()
         elif level=='bulk':
             self.cn_s = self.infer_bulk_level()
-        elif level=='pyro':
-            self.cn_s, supp_out_df = self.infer_pyro_model()
+        elif level=='pyro': 
+            self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df = self.infer_pyro_model()
 
-        return self.cn_s, supp_out_df
+        return self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df
 
 
     def infer_pyro_model(self, learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
@@ -131,11 +136,11 @@ class scRT:
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
                                      learning_rate=self.learning_rate, max_iter=self.max_iter, min_iter=self.min_iter, rel_tol=self.rel_tol,
-                                     cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon)
+                                     cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon, look_for_missed_s_cells=self.look_for_missed_s_cells)
 
-        self.cn_s, supp_out_df  = pyro_model.run_pyro_model()
+        cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df  = pyro_model.run_pyro_model()
 
-        return self.cn_s, supp_out_df
+        return cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df
 
 
     def infer_cell_level(self):
