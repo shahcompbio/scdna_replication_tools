@@ -28,7 +28,7 @@ class scRT:
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4,
-                 upsilon=6, ook_for_missed_s_cells=True):
+                 upsilon=6, look_for_missed_s_cells=True):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -102,8 +102,7 @@ class scRT:
         return self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df
 
 
-    def infer_pyro_model(self, learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                         cuda=False, seed=0, P=13, K=4):
+    def infer_pyro_model(self):
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             # convert to table where columns are cells and rows are loci

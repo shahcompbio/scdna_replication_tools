@@ -795,7 +795,7 @@ class pyro_infer_scRT():
         trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
         # get output dataframes based on learned latent parameters and states
-        cn_s_out, supp_s_out_df = package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s2)
+        cn_s_out, supp_s_out_df = self.package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s2)
 
         # run pre-trained S-phase model on cells labeled as G1/2-phase to see if
         # any of them are actually in S-phase
@@ -812,7 +812,7 @@ class pyro_infer_scRT():
                 self.model_s,
                 data={
                     'expose_rho': rho_fit_s,
-                    'expose_a': a_fit_s
+                    'expose_a': a_fit_s,
                     'expose_beta_means': beta_means_fit,
                     'expose_beta_stds': beta_stds_fit,
                 })
@@ -856,7 +856,7 @@ class pyro_infer_scRT():
             trace_s2 = poutine.trace(inferred_model_s2).get_trace(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
             # save results for these cells
-            cn_g1_out, supp_g1_out_df = package_s_output(self.cn_g1, trace_s2, cn_g1_reads_df, lambda_fit, losses_g, losses_s2)
+            cn_g1_out, supp_g1_out_df = self.package_s_output(self.cn_g1, trace_s2, cn_g1_reads_df, lambda_fit, losses_g, losses_s2)
         else:
             cn_g1_out = None
             supp_g1_out_df = None 
