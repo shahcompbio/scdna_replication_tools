@@ -503,8 +503,6 @@ class pyro_infer_scRT():
         # define cell and loci plates
         loci_plate = pyro.plate('num_loci', num_loci, dim=-2)
         cell_plate = pyro.plate('num_cells', num_cells, dim=-1)
-        print('num_cells', num_cells)
-        print('num_loci', num_loci)
 
         if rho0 is not None:
             # fix replication timing as constant when input into model
@@ -524,8 +522,6 @@ class pyro_infer_scRT():
                 tau = pyro.param('expose_tau', t_init, constraint=constraints.unit_interval)
             else:
                 tau = pyro.sample('expose_tau', dist.Beta(torch.tensor([1.5]), torch.tensor([1.5])))
-
-            print('tau.shape', tau.shape)
             
             # per cell reads per copy per bin
             # u should be inversely related to tau and ploidy, positively related to reads
@@ -536,12 +532,9 @@ class pyro_infer_scRT():
                 cell_ploidies = torch.mean(temp_cn0, dim=0)
             else:
                 cell_ploidies = torch.ones(num_cells) * 2.
-            print('cell_ploidies.shape', cell_ploidies.shape)
-            print('data.shape', data.shape)
 
             u_guess = torch.mean(data.type(torch.float32), dim=0) / ((1 + tau) * cell_ploidies)
             u_stdev = u_guess / 10.
-            print('u_guess.shape', u_guess.shape)
         
             u = pyro.sample('expose_u', dist.Normal(u_guess, u_stdev))
 
@@ -776,13 +769,6 @@ class pyro_infer_scRT():
         elbo_s = JitTraceEnum_ELBO(max_plate_nesting=2)
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
-        print('cn_s_reads.shape', cn_s_reads.shape)
-        print('gammas.shape', gammas.shape)
-        print('libs_s.shape', libs_s.shape)
-        print('etas.shape', etas.shape)
-        print('lambda_fit.shape', lambda_fit.shape)
-        print('t_init.shape', t_init.shape)
-
         # start inference
         logging.info('Start inference for S-phase cells.')
         losses_s = []
@@ -842,13 +828,6 @@ class pyro_infer_scRT():
             optim_s2 = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
             elbo_s2 = JitTraceEnum_ELBO(max_plate_nesting=2)
             svi_s2 = SVI(model_s2, guide_s2, optim_s2, loss=elbo_s2)
-
-            print('cn_g1_reads.shape', cn_g1_reads.shape)
-            print('gammas.shape', gammas.shape)
-            print('libs_g1.shape', libs_g1.shape)
-            print('etas2.shape', etas2.shape)
-            print('lambda_fit.shape', lambda_fit.shape)
-            print('t_init2.shape', t_init2.shape)
 
             # start inference
             logging.info('Running pre-trained S-phase model on cells initially labeled as G1/2-phase.')
