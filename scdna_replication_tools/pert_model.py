@@ -226,11 +226,11 @@ class pyro_infer_scRT():
         return etas
 
 
-    def build_clone_cn_prior(self, cn_df, cn_tensor, clone_cn_profiles, weight=1e6):
+    def build_clone_cn_prior(self, cn, cn_df, cn_tensor, clone_cn_profiles, weight=1e6):
         """ Use the pseudobulk clone profiles as the prior concentration for copy number """
         cn_prior_input = torch.zeros(cn_tensor.shape)
         for i, cell_id in enumerate(cn_df.columns):
-            cell_cn = self.cn_s.loc[self.cn_s[self.cell_col]==cell_id]  # get full cn data for this cell
+            cell_cn = cn.loc[cn[self.cell_col]==cell_id]  # get full cn data for this cell
             cell_clone = cell_cn[self.clone_col].values[0]  # get clone id
             cn_prior_input[:, i] = torch.tensor(clone_cn_profiles[cell_clone].values).to(torch.int64).to(torch.float32)  # assign consensus clone cn profile for this cell
         
@@ -503,6 +503,8 @@ class pyro_infer_scRT():
         # define cell and loci plates
         loci_plate = pyro.plate('num_loci', num_loci, dim=-2)
         cell_plate = pyro.plate('num_cells', num_cells, dim=-1)
+        print('num_cells', num_cells)
+        print('num_loci', num_loci)
 
         if rho0 is not None:
             # fix replication timing as constant when input into model
@@ -522,6 +524,8 @@ class pyro_infer_scRT():
                 tau = pyro.param('expose_tau', t_init, constraint=constraints.unit_interval)
             else:
                 tau = pyro.sample('expose_tau', dist.Beta(torch.tensor([1.5]), torch.tensor([1.5])))
+
+            print('tau.shape', tau.shape)
             
             # per cell reads per copy per bin
             # u should be inversely related to tau and ploidy, positively related to reads
@@ -532,8 +536,12 @@ class pyro_infer_scRT():
                 cell_ploidies = torch.mean(temp_cn0, dim=0)
             else:
                 cell_ploidies = torch.ones(num_cells) * 2.
+            print('cell_ploidies.shape', cell_ploidies.shape)
+            print('data.shape', data.shape)
+
             u_guess = torch.mean(data.type(torch.float32), dim=0) / ((1 + tau) * cell_ploidies)
             u_stdev = u_guess / 10.
+            print('u_guess.shape', u_guess.shape)
         
             u = pyro.sample('expose_u', dist.Normal(u_guess, u_stdev))
 
@@ -687,7 +695,7 @@ class pyro_infer_scRT():
             etas = self.build_cn_prior(cn_prior_input)
         elif self.cn_prior_method == 'g1_clones':
             # use G1-phase clone that has highest correlation to each S-phase cell as prior
-            etas = self.build_clone_cn_prior(cn_s_reads_df, cn_s_states, clone_cn_profiles, weight=1e6)
+            etas = self.build_clone_cn_prior(self.cn_s, cn_s_reads_df, cn_s_states, clone_cn_profiles, weight=1e6)
         elif self.cn_prior_method == 'g1_composite':
             # use a composite of the principles in g1_clones and g1_cells to construct the prior
             etas = self.build_composite_cn_prior(cn_s_reads_df, clone_cn_profiles)
@@ -768,6 +776,13 @@ class pyro_infer_scRT():
         elbo_s = JitTraceEnum_ELBO(max_plate_nesting=2)
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
+        print('cn_s_reads.shape', cn_s_reads.shape)
+        print('gammas.shape', gammas.shape)
+        print('libs_s.shape', libs_s.shape)
+        print('etas.shape', etas.shape)
+        print('lambda_fit.shape', lambda_fit.shape)
+        print('t_init.shape', t_init.shape)
+
         # start inference
         logging.info('Start inference for S-phase cells.')
         losses_s = []
@@ -795,14 +810,14 @@ class pyro_infer_scRT():
         trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
         # get output dataframes based on learned latent parameters and states
-        cn_s_out, supp_s_out_df = self.package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s2)
+        cn_s_out, supp_s_out_df = self.package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s)
 
         # run pre-trained S-phase model on cells labeled as G1/2-phase to see if
         # any of them are actually in S-phase
         if self.look_for_missed_s_cells:
             # extract parameters learned in S-phase model that need to be conditioned
-            rho_fit_s = trace_s.nodes['expose_rho']['value']
-            a_fit_s = trace_s.nodes['expose_a']['value']
+            rho_fit_s = trace_s.nodes['expose_rho']['value'].detach()
+            a_fit_s = trace_s.nodes['expose_a']['value'].detach()
             
             pyro.clear_param_store()
             pyro.enable_validation(__debug__)
@@ -818,7 +833,7 @@ class pyro_infer_scRT():
                 })
 
             # use clone pseudobulk profiles to set the CN prior of each cell
-            etas2 = self.build_clone_cn_prior(cn_g1_reads_df, cn_g1_states, clone_cn_profiles, weight=1e6)
+            etas2 = self.build_clone_cn_prior(self.cn_g1, cn_g1_reads_df, cn_g1_states, clone_cn_profiles, weight=1e6)
 
             # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
             t_init2, t_alpha_prior2, t_beta_prior2 = self.guess_times(cn_g1_reads, etas2)
@@ -828,10 +843,17 @@ class pyro_infer_scRT():
             elbo_s2 = JitTraceEnum_ELBO(max_plate_nesting=2)
             svi_s2 = SVI(model_s2, guide_s2, optim_s2, loss=elbo_s2)
 
+            print('cn_g1_reads.shape', cn_g1_reads.shape)
+            print('gammas.shape', gammas.shape)
+            print('libs_g1.shape', libs_g1.shape)
+            print('etas2.shape', etas2.shape)
+            print('lambda_fit.shape', lambda_fit.shape)
+            print('t_init2.shape', t_init2.shape)
+
             # start inference
             logging.info('Running pre-trained S-phase model on cells initially labeled as G1/2-phase.')
             losses_s2 = []
-            max_iter2 = max(self.min_iter, int(self.max_iter/2))  # can get away with fewer iters since a and rho are fixed
+            max_iter2 = int(self.max_iter/2)  # can get away with fewer iters since a and rho are fixed
             for i in range(max_iter2):
                 loss = svi_s2.step(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
@@ -851,7 +873,7 @@ class pyro_infer_scRT():
 
             # infer discrete sites and get model trace
             inferred_model_s2 = infer_discrete(
-                trained_model_s, temperature=0,
+                trained_model_s2, temperature=0,
                 first_available_dim=-3)
             trace_s2 = poutine.trace(inferred_model_s2).get_trace(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
