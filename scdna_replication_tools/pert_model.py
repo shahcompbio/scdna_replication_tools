@@ -751,7 +751,7 @@ class pyro_infer_scRT():
         num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
         pyro.set_rng_seed(self.seed)
         pyro.clear_param_store()
-        pyro.enable_validation(__debug__)
+        pyro.enable_validation(False)
 
         # condition gc betas of S-phase model using fitted results from G1-phase model
         model_s = poutine.condition(
@@ -806,7 +806,7 @@ class pyro_infer_scRT():
             a_fit_s = trace_s.nodes['expose_a']['value'].detach()
             
             pyro.clear_param_store()
-            pyro.enable_validation(__debug__)
+            pyro.enable_validation(False)
 
             # condition gc betas of S-phase model using fitted results from G1-phase model
             model_s2 = poutine.condition(
