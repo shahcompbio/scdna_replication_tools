@@ -166,6 +166,7 @@ class pyro_infer_scRT():
 
     def sort_by_cell_and_loci(self, cn):
         """ Sort long-form dataframe so each cell follows correct genomic ordering """
+        cn[self.chr_col] = cn[self.chr_col].astype(str)
         cn[self.chr_col] = cn[self.chr_col].astype('category')
         chr_order = [str(i+1) for i in range(22)]
         chr_order.append('X')
