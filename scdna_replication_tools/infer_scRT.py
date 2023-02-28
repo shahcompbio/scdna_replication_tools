@@ -27,8 +27,8 @@ class scRT:
                  cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
-                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4,
-                 upsilon=6, look_for_missed_s_cells=True):
+                 max_iter=2000, min_iter=100, max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
+                 learning_rate=0.05, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
@@ -82,7 +82,25 @@ class scRT:
         self.P = P  # number of CN states
         self.K = K  # polynomial degree
         self.upsilon = upsilon
-        self.look_for_missed_s_cells = look_for_missed_s_cells
+        self.run_step3 = run_step3
+        
+        # set max/min iter for step 1 and 3 to be half as those for step 2 if None
+        if max_iter_step1 is None:
+            self.max_iter_step1 = int(self.max_iter/2)
+        else:
+            self.max_iter_step1 = max_iter_step1
+        if min_iter_step1 is None:
+            self.min_iter_step1 = int(self.min_iter/2)
+        else:
+            self.min_iter_step1 = min_iter_step1
+        if max_iter_step3 is None:
+            self.max_iter_step3 = int(self.max_iter/2)
+        else:
+            self.max_iter_step3 = max_iter_step3
+        if min_iter_step3 is None:
+            self.min_iter_step3 = int(self.min_iter/2)
+        else:
+            self.min_iter_step3 = min_iter_step3
 
 
     def infer(self, level='pyro'):
@@ -106,7 +124,7 @@ class scRT:
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             # convert to table where columns are cells and rows are loci
-            g1_mat = cn.pivot_table(columns=self.cell_col, index=[self.chr_col, self.start_col], values=self.assign_col)
+            g1_mat = self.cn_g1.pivot_table(columns=self.cell_col, index=[self.chr_col, self.start_col], values=self.assign_col)
             
             # perform kmeans clustering with using bic too pick K
             clusters = kmeans_cluster(g1_mat, max_k=20)
@@ -135,7 +153,8 @@ class scRT:
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
                                      learning_rate=self.learning_rate, max_iter=self.max_iter, min_iter=self.min_iter, rel_tol=self.rel_tol,
-                                     cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon, look_for_missed_s_cells=self.look_for_missed_s_cells)
+                                     min_iter_step1=self.min_iter_step1, min_iter_step3=self.min_iter_step3, max_iter_step1=self.max_iter_step1, max_iter_step3=self.max_iter_step3,
+                                     cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon, run_step3=self.run_step3)
 
         cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df  = pyro_model.run_pyro_model()
 

@@ -40,7 +40,8 @@ class pyro_infer_scRT():
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
                  learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
-                 cuda=False, seed=0, P=13, K=4, upsilon=6, look_for_missed_s_cells=True):
+                 max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
+                 cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         '''
         initialise the pyro_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -59,7 +60,12 @@ class pyro_infer_scRT():
         :param frac_rt_col: column added containing the fraction of replciated bins for each S-phase cell. (str)
         :param cn_prior_method: Method for building the cn prior concentrations. Options are 'hmmcopy', 'g1_cells', 'g1_clones', 'g1_composite', 'diploid'. (str)
         :param learning_rate: learning rate of Adam optimizer. (float)
-        :param max_iter: max number of iterations of elbo optimization during inference. (int)
+        :param max_iter: max number of iterations of elbo optimization during Step 2 inference. (int)
+        :param min_iter: min number of iterations of elbo optimization during Step 2 inference. (int)
+        :param max_iter_step1: max number of iterations of elbo optimization during Step 1 inference. (int)
+        :param min_iter_step1: min number of iterations of elbo optimization during Step 1 inference. (int)
+        :param max_iter_step3: max number of iterations of elbo optimization during Step 3 inference. (int)
+        :param min_iter_step3: min number of iterations of elbo optimization during Step 3 inference. (int)
         :param rel_tol: when the relative change in elbo drops to rel_tol, stop inference. (float)
         :param cuda: use cuda tensor type. (bool)
         :param seed: random number generator seed. (int)
@@ -67,7 +73,7 @@ class pyro_infer_scRT():
         :param L: number of libraries. (int)
         :param K: maximum polynomial degree allowed for the GC bias curve. (int)
         :param upsilon: value that alpha and beta terms should sum to when creating a beta distribution prior for tau. (int)
-        :param look_for_missed_s_cells: Should the pretrained S-phase model be run on G1/2-phase cells to look for misclassifications. (bool)
+        :param run_step3: Should the pretrained S-phase model be run on low variance cells to look for misclassifications. (bool)
         '''
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
@@ -93,6 +99,24 @@ class pyro_infer_scRT():
         self.cuda = cuda
         self.seed = seed
 
+        # set max/min iter for step 1 and 3 to be half as those for step 2 if None
+        if max_iter_step1 is None:
+            self.max_iter_step1 = int(self.max_iter/2)
+        else:
+            self.max_iter_step1 = max_iter_step1
+        if min_iter_step1 is None:
+            self.min_iter_step1 = int(self.min_iter/2)
+        else:
+            self.min_iter_step1 = min_iter_step1
+        if max_iter_step3 is None:
+            self.max_iter_step3 = int(self.max_iter/2)
+        else:
+            self.max_iter_step3 = max_iter_step3
+        if min_iter_step3 is None:
+            self.min_iter_step3 = int(self.min_iter/2)
+        else:
+            self.min_iter_step3 = min_iter_step3
+        
         self.cn_prior_method = cn_prior_method
 
         self.P = P
@@ -100,7 +124,7 @@ class pyro_infer_scRT():
         self.K = K
 
         self.upsilon = upsilon
-        self.look_for_missed_s_cells = look_for_missed_s_cells
+        self.run_step3 = run_step3
 
 
     def process_input_data(self):
@@ -558,6 +582,10 @@ class pyro_infer_scRT():
                 # probability of having been replicated
                 phi = 1 / (1 + torch.exp(-a * t_diff))
 
+                # force phi to remain on the domain of 0.001 to 0.999
+                phi[phi<0.001] = 0.001
+                phi[phi>0.999] = 0.999
+
                 # binary replicated indicator
                 rep = pyro.sample('rep', dist.Bernoulli(phi), infer={"enumerate": "parallel"})
 
@@ -712,20 +740,25 @@ class pyro_infer_scRT():
         svi = SVI(model_g1, guide_g1, optim, loss=elbo)
 
         # start inference
-        logging.info('Start inference for G1-phase cells.')
+        logging.info('STEP 1: Learning reads to CN bias from low variance cells.')
         losses_g = []
-        for i in range(self.max_iter):
+        for i in range(self.max_iter_step1):
             loss = svi.step(gammas, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
 
+            losses_g.append(loss)
+            logging.info('step: {}, loss: {}'.format(i, loss))
+
             # fancy convergence check that sees if the past 10 iterations have plateaued
-            if i >= self.min_iter:
+            if i >= self.min_iter_step1:
                 loss_diff = abs(max(losses_g[-10:-1]) - min(losses_g[-10:-1])) / abs(losses_g[0] - losses_g[-1])
                 if loss_diff < 1e-6:
                     print('ELBO converged at iteration ' + str(i))
                     break
-
-            losses_g.append(loss)
-            logging.info('step: {}, loss: {}'.format(i, loss))
+            
+            # stop training if loss is NaN
+            if np.isnan(loss):
+                print('ELBO is NaN at iteration ' + str(i))
+                break
 
 
         # replay model
@@ -743,11 +776,6 @@ class pyro_infer_scRT():
         betas_fit = trace_g1.nodes['expose_betas']['value'].detach()
         beta_means_fit = trace_g1.nodes['expose_beta_means']['value'].detach()
         beta_stds_fit = trace_g1.nodes['expose_beta_stds']['value'].detach()
-
-        # # Now run the model for S-phase cells
-        # logging.info('read_profiles after loading data: {}'.format(cn_s_reads.shape))
-        # logging.info('read_profiles data type: {}'.format(cn_s_reads.dtype))
-
 
         num_observations = float(cn_s_reads.shape[0] * cn_s_reads.shape[1])
         pyro.set_rng_seed(self.seed)
@@ -771,10 +799,13 @@ class pyro_infer_scRT():
         svi_s = SVI(model_s, guide_s, optim_s, loss=elbo_s)
 
         # start inference
-        logging.info('Start inference for S-phase cells.')
+        logging.info('STEP 2: Jointly infer replication and CN states in high variance cells.')
         losses_s = []
         for i in range(self.max_iter):
             loss = svi_s.step(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
+
+            losses_s.append(loss)
+            logging.info('step: {}, loss: {}'.format(i, loss))
 
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
@@ -782,9 +813,12 @@ class pyro_infer_scRT():
                 if loss_diff < 1e-6:
                     print('ELBO converged at iteration ' + str(i))
                     break
+            
+            # stop training if loss is NaN
+            if np.isnan(loss):
+                print('ELBO is NaN at iteration ' + str(i))
+                break
 
-            losses_s.append(loss)
-            logging.info('step: {}, loss: {}'.format(i, loss))
 
         # replay model
         guide_trace_s = poutine.trace(guide_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
@@ -801,7 +835,7 @@ class pyro_infer_scRT():
 
         # run pre-trained S-phase model on cells labeled as G1/2-phase to see if
         # any of them are actually in S-phase
-        if self.look_for_missed_s_cells:
+        if self.run_step3:
             # extract parameters learned in S-phase model that need to be conditioned
             rho_fit_s = trace_s.nodes['expose_rho']['value'].detach()
             a_fit_s = trace_s.nodes['expose_a']['value'].detach()
@@ -831,21 +865,25 @@ class pyro_infer_scRT():
             svi_s2 = SVI(model_s2, guide_s2, optim_s2, loss=elbo_s2)
 
             # start inference
-            logging.info('Running pre-trained S-phase model on cells initially labeled as G1/2-phase.')
+            logging.info('STEP 3: Running pre-trained S-phase model on low variance cells.')
             losses_s2 = []
-            max_iter2 = int(self.max_iter/2)  # can get away with fewer iters since a and rho are fixed
-            for i in range(max_iter2):
+            for i in range(self.max_iter_step3):
                 loss = svi_s2.step(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
 
+                losses_s2.append(loss)
+                logging.info('step: {}, loss: {}'.format(i, loss))
+
                 # fancy convergence check that sees if the past 10 iterations have plateaued
-                if i >= self.min_iter:
+                if i >= self.min_iter_step3:
                     loss_diff = abs(max(losses_s2[-10:-1]) - min(losses_s2[-10:-1])) / abs(losses_s2[0] - losses_s2[-1])
                     if loss_diff < 1e-6:
                         print('ELBO converged at iteration ' + str(i))
                         break
-
-                losses_s2.append(loss)
-                logging.info('step: {}, loss: {}'.format(i, loss))
+            
+                # stop training if loss is NaN
+                if np.isnan(loss):
+                    print('ELBO is NaN at iteration ' + str(i))
+                    break
 
             # replay model
             guide_trace_s2 = poutine.trace(guide_s2).get_trace(gammas, libs_g1, data=cn_g1_reads, etas=etas2, lamb=lambda_fit, t_init=t_init2)
