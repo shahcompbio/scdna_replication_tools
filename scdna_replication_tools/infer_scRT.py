@@ -28,7 +28,7 @@ class scRT:
                  rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
                  cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
                  max_iter=2000, min_iter=100, max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
-                 learning_rate=0.05, rel_tol=5e-5, cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
+                 learning_rate=0.05, rel_tol=1e-6, cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         self.cn_s = cn_s
         self.cn_g1 = cn_g1
 
