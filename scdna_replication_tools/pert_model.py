@@ -39,7 +39,7 @@ class pyro_infer_scRT():
                  clone_col='clone_id', cell_col='cell_id', library_col='library_id', 
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
-                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=5e-5,
+                 learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=1e-6,
                  max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
                  cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         '''
@@ -751,7 +751,7 @@ class pyro_infer_scRT():
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter_step1:
                 loss_diff = abs(max(losses_g[-10:-1]) - min(losses_g[-10:-1])) / abs(losses_g[0] - losses_g[-1])
-                if loss_diff < 1e-6:
+                if loss_diff < self.rel_tol:
                     print('ELBO converged at iteration ' + str(i))
                     break
             
@@ -810,7 +810,7 @@ class pyro_infer_scRT():
             # fancy convergence check that sees if the past 10 iterations have plateaued
             if i >= self.min_iter:
                 loss_diff = abs(max(losses_s[-10:-1]) - min(losses_s[-10:-1])) / abs(losses_s[0] - losses_s[-1])
-                if loss_diff < 1e-6:
+                if loss_diff < self.rel_tol:
                     print('ELBO converged at iteration ' + str(i))
                     break
             
@@ -876,7 +876,7 @@ class pyro_infer_scRT():
                 # fancy convergence check that sees if the past 10 iterations have plateaued
                 if i >= self.min_iter_step3:
                     loss_diff = abs(max(losses_s2[-10:-1]) - min(losses_s2[-10:-1])) / abs(losses_s2[0] - losses_s2[-1])
-                    if loss_diff < 1e-6:
+                    if loss_diff < self.rel_tol:
                         print('ELBO converged at iteration ' + str(i))
                         break
             
