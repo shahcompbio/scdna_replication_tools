@@ -18,3 +18,7 @@ python setup.py develop
 ```
 
 Note that you will have to activate both the conda and venv environments in order to run the methods.
+
+## Usage
+
+See the tutorial notebook.
