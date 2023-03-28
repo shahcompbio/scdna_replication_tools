@@ -12,8 +12,8 @@ conda create -n scdna_replication_tools python==3.7.4
 conda activate scdna_replication_tools
 virtualenv venv
 source venv/bin/activate
-pip install numpy==1.21.4 Cython==0.29.22
-pip install -r requirements3.txt
+pip install numpy==1.21.4 cython==0.29.33
+pip install -r requirements.txt
 python setup.py develop
 ```
 
