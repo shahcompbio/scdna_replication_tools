@@ -9,7 +9,7 @@ from scdna_replication_tools.binarize_rt_profiles import binarize_profiles
 from scdna_replication_tools.compute_pseudobulk_rt_profiles import compute_pseudobulk_rt_profiles
 from scdna_replication_tools.calculate_twidth import compute_time_from_scheduled_column, calculate_twidth
 from scdna_replication_tools.cncluster import kmeans_cluster
-from scdna_replication_tools.pert_model import pyro_infer_scRT
+from scdna_replication_tools.pert_model import pert_infer_scRT
 from argparse import ArgumentParser
 
 
@@ -103,24 +103,26 @@ class scRT:
             self.min_iter_step3 = min_iter_step3
 
 
-    def infer(self, level='pyro'):
-        # set as empty dataframe when pyro model isn't used
+    def infer(self, level='pert'):
+        # set as empty dataframe when PERT isn't used
         supp_s_out_df = pd.DataFrame({})
         supp_g1_out_df = pd.DataFrame({})
         cn_g1_out = pd.DataFrame({})
+        # set of deterministic methods
         if level=='cell':
             self.cn_s = self.infer_cell_level()
         elif level=='clone':
             self.cn_s = self.infer_clone_level()
         elif level=='bulk':
             self.cn_s = self.infer_bulk_level()
-        elif level=='pyro': 
-            self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df = self.infer_pyro_model()
+        # probabilistic PERT method
+        elif level=='pyro' or level=='pert': 
+            self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df = self.infer_pert_model()
 
         return self.cn_s, supp_s_out_df, cn_g1_out, supp_g1_out_df
 
 
-    def infer_pyro_model(self):
+    def infer_pert_model(self):
         # run clustering if no clones are included in G1 input
         if self.clone_col is None:
             # convert to table where columns are cells and rows are loci
@@ -148,7 +150,7 @@ class scRT:
 
         # run pyro model to get replication timing states
         print('using {} as cn_prior_method'.format(self.cn_prior_method))
-        pyro_model = pyro_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
+        pert_model = pert_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col, assign_col=self.assign_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method,
@@ -156,7 +158,7 @@ class scRT:
                                      min_iter_step1=self.min_iter_step1, min_iter_step3=self.min_iter_step3, max_iter_step1=self.max_iter_step1, max_iter_step3=self.max_iter_step3,
                                      cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon, run_step3=self.run_step3)
 
-        cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df  = pyro_model.run_pyro_model()
+        cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df  = pert_model.run_pert_model()
 
         return cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df
 
