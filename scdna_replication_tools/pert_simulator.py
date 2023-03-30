@@ -407,10 +407,13 @@ def pert_simulator(df_s, df_g, num_reads, rt_cols, clones, lamb, betas, a, gc_co
     reads_g_df = reads_g_df.reset_index().melt(id_vars=['chr', 'start'], var_name='cell_id', value_name='true_reads_raw')
     reads_g_df.chr = reads_g_df.chr.astype(str)
     df_g = pd.merge(df_g, reads_g_df)
+    df_g['true_t'] = 0.0
+    df_g['true_rep'] = 0.0
+    df_g['true_p_rep'] = 0.0
 
     # the true total copy number is the the sum of the true somaitc copy number and the true replication state
     df_s['true_total_cn'] = df_s[input_cn_col] * (df_s['true_rep'] + 1)
-    df_g['true_total_cn'] = df_g[input_cn_col]
+    df_g['true_total_cn'] = df_g[input_cn_col] * (df_g['true_rep'] + 1)
 
     return df_s, df_g
 

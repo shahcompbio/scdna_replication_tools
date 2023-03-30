@@ -26,6 +26,8 @@ def plot_model_results(
     cn_s, cn_g, argv=None, clone_col='clone_id', second_sort_col='model_tau', 
     rpm_col='rpm', input_cn_col='state', output_cn_col='model_cn_state', output_rep_col='model_rep_state',
     top_title_prefix='S-phase cells', bottom_title_prefix='G1/2-phase cells',
+    rpm_title='Reads per million', input_cn_title='Input CN states',
+    output_cn_title='PERT CN states', rep_title='PERT replication states', 
     rt_cmap=get_rt_cmap(), clone_cmap=get_clone_cmap(), rpm_cmap='viridis'
     ):
     ''' 
@@ -65,6 +67,14 @@ def plot_model_results(
         prefix for the title of the top row of plots (corresponding to cn_s)
     bottom_title_prefix : str
         prefix for the title of the bottom row of plots (corresponding to cn_g)
+    rpm_title : str
+        title for the rpm heatmap in the far-left column
+    input_cn_title : str
+        title for the input CN heatmap in the middle-left column
+    output_cn_title : str
+        title for the output CN heatmap in the middle-right column
+    rep_title : str
+        title for the replication state heatmap in the far-right column
     rt_cmap : matplotlib.colors.ListedColormap
         colormap for replication states
     clone_cmap : matplotlib.colors.ListedColormap
@@ -90,28 +100,28 @@ def plot_model_results(
     plot_data0 = plot_clustered_cell_cn_matrix(
         ax0, cn_s, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, max_cn=None, raw=True, cmap=rpm_cmap
     )
-    ax0.set_title('{}\nReads per million'.format(top_title_prefix))
+    ax0.set_title('{}\n{}'.format(top_title_prefix, rpm_title))
 
     # top mid-left is the hmmcopy states
     ax1 = fig.add_axes([0.29,0.5,0.23,0.45])
     plot_data1 = plot_clustered_cell_cn_matrix(
         ax1, cn_s, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
     )
-    ax1.set_title('{}\nInput CN states'.format(top_title_prefix))
+    ax1.set_title('{}\n{}'.format(top_title_prefix, input_cn_title))
 
     # top mid-right is the model cn states
     ax2 = fig.add_axes([0.53,0.5,0.23,0.45])
     plot_data2 = plot_clustered_cell_cn_matrix(
         ax2, cn_s, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
     )
-    ax2.set_title('{}\nPERT CN states'.format(top_title_prefix))
+    ax2.set_title('{}\n{}'.format(top_title_prefix, output_cn_title))
 
     # top right corner is the replication states
     ax3 = fig.add_axes([0.77,0.5,0.23,0.45])
     plot_data3 = plot_clustered_cell_cn_matrix(
         ax3, cn_s, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap
     )
-    ax3.set_title('{}\nPERT replication states'.format(top_title_prefix))
+    ax3.set_title('{}\n{}'.format(top_title_prefix, rep_title))
 
     # plot the G1/2-phase cells in the bottom row
     # bottom left corner is the rpm
@@ -119,28 +129,28 @@ def plot_model_results(
     plot_data4 = plot_clustered_cell_cn_matrix(
         ax4, cn_g, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, max_cn=None, raw=True, cmap=rpm_cmap
     )
-    ax4.set_title('{}\nReads per million'.format(bottom_title_prefix))
+    ax4.set_title('{}\n{}'.format(bottom_title_prefix, rpm_title))
 
     # bottom mid-left is the hmmcopy states
     ax5 = fig.add_axes([0.29,0.0,0.23,0.45])
     plot_data5 = plot_clustered_cell_cn_matrix(
         ax5, cn_g, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
     )
-    ax5.set_title('{}\nInput CN states'.format(bottom_title_prefix))
+    ax5.set_title('{}\n{}'.format(bottom_title_prefix, input_cn_title))
 
     # bottom mid-right is the model cn states
     ax6 = fig.add_axes([0.53,0.0,0.23,0.45])
     plot_data6 = plot_clustered_cell_cn_matrix(
         ax6, cn_g, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
     )
-    ax6.set_title('{}\nPERT CN states'.format(bottom_title_prefix))
+    ax6.set_title('{}\n{}'.format(bottom_title_prefix, output_cn_title))
 
     # bottom right corner is the replication states
     ax7 = fig.add_axes([0.77,0.0,0.23,0.45])
     plot_data7 = plot_clustered_cell_cn_matrix(
         ax7, cn_g, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap
     )
-    ax7.set_title('{}\nPERT replication states'.format(bottom_title_prefix))
+    ax7.set_title('{}\n{}'.format(bottom_title_prefix, rep_title))
 
     # turn off the y-axis ticks in all subplots
     for ax in [ax0, ax1, ax2, ax3, ax4, ax5, ax6, ax7]:

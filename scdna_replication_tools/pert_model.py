@@ -8,8 +8,10 @@ import pyro
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, JitTraceEnum_ELBO, JitTrace_ELBO, infer_discrete, config_enumerate
-from pyro.util import ignore_jit_warnings
+from pyro.infer import SVI, JitTraceEnum_ELBO, JitTrace_ELBO, TraceEnum_ELBO, TraceTMC_ELBO, infer_discrete, config_enumerate
+from pyro.ops.indexing import Vindex
+from pyro.optim import Adam
+from pyro.util import ignore_jit_warnings, optional
 
 import numpy as np
 import pandas as pd
