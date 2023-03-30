@@ -245,13 +245,13 @@ def main():
 
     # show rpm, hmmcopy, inferred cn, inferred rep heatmaps for S-phase cells and G1/2-phase cells
     # where all the rows are sorted the same in all four heatmaps
-    plot_model_results(cn_s, cn_g, argv, top_title_prefix='{} S-phase cells'.format(argv.dataset), bottom_title_prefix='{} G1/2-phase cells'.format(argv.dataset))
+    plot_model_results(cn_s, cn_g, argv=argv, top_title_prefix='{} S-phase cells'.format(argv.dataset), bottom_title_prefix='{} G1/2-phase cells'.format(argv.dataset))
 
     # show hmmcopy state heatmaps for both S-phase and G1-phase cells
-    plot_cn_states(cn_s, cn_g, argv, title0='{} HMMcopy states\nG1/2-phase cells'.format(argv.dataset), title1='{} HMMcopy states\nS-phase cells'.format(argv.dataset))
+    plot_cn_states(cn_s, cn_g, argv=argv, title0='{} HMMcopy states\nG1/2-phase cells'.format(argv.dataset), title1='{} HMMcopy states\nS-phase cells'.format(argv.dataset))
 
     # show reads per million heatmaps for both S-phase and G1-phase cells
-    plot_rpm(cn_s, cn_g, argv, title0='{} reads per million\nG1/2-phase cells'.format(argv.dataset), title1='{} reads per million\nS-phase cells'.format(argv.dataset))
+    plot_rpm(cn_s, cn_g, argv=argv, title0='{} reads per million\nG1/2-phase cells'.format(argv.dataset), title1='{} reads per million\nS-phase cells'.format(argv.dataset))
 
 
 
