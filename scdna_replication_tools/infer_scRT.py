@@ -158,6 +158,9 @@ class scRT:
                                      min_iter_step1=self.min_iter_step1, min_iter_step3=self.min_iter_step3, max_iter_step1=self.max_iter_step1, max_iter_step3=self.max_iter_step3,
                                      cuda=self.cuda, seed=self.seed, P=self.P, K=self.K, upsilon=self.upsilon, run_step3=self.run_step3)
 
+        print('running PERT model')
+        print('cn_s.dtypes', self.cn_s.dtypes, sep='\n')
+        print('cn_g1.dtypes', self.cn_g1.dtypes, sep='\n')
         cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df  = pert_model.run_pert_model()
 
         return cn_s_out, supp_s_out_df, cn_g1_out, supp_g1_out_df
