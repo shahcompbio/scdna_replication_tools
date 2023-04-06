@@ -1,4 +1,3 @@
-import argparse
 import logging
 import sys
 
@@ -34,7 +33,7 @@ debug_handler.addFilter(filter=lambda record: record.levelno <= logging.DEBUG)
 log.addHandler(debug_handler)
 
 
-class pyro_infer_scRT():
+class pert_infer_scRT():
     def __init__(self, cn_s, cn_g1, input_col='reads', gc_col='gc', rt_prior_col='mcf7rt',
                  clone_col='clone_id', cell_col='cell_id', library_col='library_id', 
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
@@ -43,7 +42,7 @@ class pyro_infer_scRT():
                  max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
                  cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         '''
-        initialise the pyro_infer_scRT object
+        initialise the pert_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
         :param cn_g1: long-form dataframe containing copy number and read count information from G1-phase cells. (pandas.DataFrame)
         :param input_col: column containing read count input. (str)
@@ -658,7 +657,7 @@ class pyro_infer_scRT():
                 reads = pyro.sample('reads', dist.NegativeBinomial(delta, probs=lamb), obs=data)
 
 
-    def run_pyro_model(self):
+    def run_pert_model(self):
         if self.cuda:
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
 

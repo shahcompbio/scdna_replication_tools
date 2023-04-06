@@ -39,7 +39,8 @@ configparser==3.5.0
 coreapi==2.3.3
 coreschema==0.0.4
 cryptography==2.8
--e git+https://github.com/mondrian-scwgs/csverve.git@1dd3cde7e461d354a7c91539c09d145ec9f65254#egg=csverve
+# -e git+https://github.com/mondrian-scwgs/csverve.git@1dd3cde7e461d354a7c91539c09d145ec9f65254#egg=csverve
+-e git+https://github.com/mondrian-scwgs/csverve.git@2d6db28dbd4f1867670a5251fd97b98212629c2e#egg=csverve
 cycler==0.10.0
 Cython==0.29.22
 daft==0.1.2
@@ -73,7 +74,8 @@ isodate==0.6.0
 isort==4.3.17
 itypes==1.1.0
 jax==0.3.13
-jaxlib==0.3.10
+# jaxlib==0.3.10
+jaxlib==0.3.5
 jedi==0.15.1
 Jinja2==2.10.3
 jira==2.0.0
