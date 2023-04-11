@@ -57,4 +57,4 @@ Please report any bugs or issues to the [issue tracker](https://github.com/shahc
 
 ## Citation
 
-If you use PERT in your work, please cite the following paper: TBD
+If you use PERT in your work, please cite the following paper: [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2023.04.10.536250v1)
