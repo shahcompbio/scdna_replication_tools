@@ -4,11 +4,11 @@ FROM python:3.7.4
 # Set the working directory inside the container
 WORKDIR /app
 
-# Clone the GitHub repository
-RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
+# # Clone the GitHub repository
+# RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
 
-# Change to the cloned repository's directory
-WORKDIR /app/scdna_replication_tools
+# # Change to the cloned repository's directory
+# WORKDIR /app/scdna_replication_tools
 
 # # Create a virtual environment
 # RUN python -m venv venv/
