@@ -3,7 +3,9 @@ Method for probabilistic estimation of replication timing (PERT) from single-cel
 
 ## Installation
 
-It is recommended that you clone this repository and install all prerequisites with pip in a virtual environment:
+It is recommended that you use the docker image to run PERT. To do so, use [docker](https://docs.docker.com/get-docker/) or [singularity](https://docs.sylabs.io/guides/2.6/user-guide/singularity_and_docker.html) to pull the following [docker image](https://hub.docker.com/r/adamcweiner/scdna_replication_tools). This docker image contains all the necessary dependencies to run PERT and is automatically updated with the latest version of `main` using Github Actions.
+
+If you do not wish to use the docker container, you can set up a conda environment with the correct python version and use pip to install all the requirements in a virtual environment:
 
 ```
 git clone git@github.com:shahcompbio/scdna_replication_tools.git
