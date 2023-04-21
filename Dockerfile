@@ -10,11 +10,11 @@ RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
 # Change to the cloned repository's directory
 WORKDIR /app/scdna_replication_tools
 
-# Create a virtual environment
-RUN python -m venv venv/
+# # Create a virtual environment
+# RUN python -m venv venv/
 
-# Activate the virtual environment
-RUN /bin/bash -c "source venv/bin/activate"
+# # Activate the virtual environment
+# RUN /bin/bash -c "source venv/bin/activate"
 
 # Install dependencies
 RUN pip install numpy==1.21.4 cython==0.29.22
