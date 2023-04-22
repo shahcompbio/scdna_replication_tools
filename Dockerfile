@@ -1,6 +1,10 @@
 # Use the official Python base image with the desired version
 FROM python:3.7.4
 
+# Register github token from secrets path
+RUN --mount=type=secret,id=github_token \
+  export GITHUB_PAT=$(cat /run/secrets/github_token)
+
 # Set the working directory inside the container
 WORKDIR /app
 
