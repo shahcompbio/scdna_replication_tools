@@ -8,11 +8,14 @@ RUN --mount=type=secret,id=github_token \
 # Set the working directory inside the container
 WORKDIR /app
 
-# Clone the GitHub repository
-RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
+# Copy the local files into the container
+COPY . /app
 
-# Change to the cloned repository's directory
-WORKDIR /app/scdna_replication_tools
+# # Clone the GitHub repository
+# RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
+
+# # Change to the cloned repository's directory
+# WORKDIR /app/scdna_replication_tools
 
 # # Create a virtual environment
 # RUN python -m venv venv/
