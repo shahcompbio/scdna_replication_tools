@@ -238,6 +238,22 @@ def get_clone_cmap():
         'L': 'darksalmon',
         12: 'darksalmon',
         'M': 'lightgreen',
-        13: 'lightgreen'
+        13: 'lightgreen',
+        'N': 'lightpink',
+        14: 'lightpink',
+        'O': 'lightgrey',
+        15: 'lightgrey',
+        'P': 'lightblue',
+        16: 'lightblue',
+        'Q': 'coral',
+        17: 'coral',
+        'R': 'lightcyan',
+        18: 'lightcyan',
+        'S': 'lightgoldenrodyellow',
+        19: 'lightgoldenrodyellow',
+        'T': 'darkseagreen',
+        20: 'darkseagreen',
+        'U': 'indigo',
+        21: 'indigo'
     }
     return cmap
