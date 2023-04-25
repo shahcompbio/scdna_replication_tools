@@ -49,7 +49,7 @@ def calculate_breakpoints(cn, cell_col='cell_id', cn_col='state', bk_col='breakp
         # this is necassary as adjacent breakpoints on different chromosomes are not counted
         for chrom_id, chrom_cn in cell_cn.groupby('chr'):
             # compute the number of breakpoints on this chromosome
-            chrom_bk_count = breakpoints(cell_cn[cn_col].values)
+            chrom_bk_count = breakpoints(chrom_cn[cn_col].values)
             cell_bk_count += chrom_bk_count
         # update the number of breakpoints for this cell
         cn.loc[cell_cn.index, bk_col] = cell_bk_count
@@ -108,7 +108,7 @@ def autocorr(data, min_lag=10, max_lag=50):
 def breakpoints(data):
     ''' Find the number of adjacent bins with different values in `data`. '''
     temp_diff = np.diff(data)
-    sum(np.where(temp_diff!=0, 1, 0))
+    return sum(np.where(temp_diff!=0, 1, 0))
 
 
 def compute_read_count(cn, input_col='reads', output_col='total_mapped_reads_hmmcopy'):
