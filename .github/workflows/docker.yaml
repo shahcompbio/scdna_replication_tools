@@ -46,3 +46,8 @@ jobs:
           github-token: ${{ secrets.GH_TOKEN }}
           secrets: |
             "github_token=${{ secrets.GH_TOKEN }}"
+            
+      # - name: Test with pytest
+      #   run: |
+      #     pip install pytest pytest-cov
+      #     pytest tests.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
