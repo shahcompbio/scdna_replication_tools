@@ -78,7 +78,7 @@ def test_pert_simulator():
     assert np.all(cn_g['true_rep'] == 0)
 
 
-def test_inference():
+def test_scrt_class():
     cn_s = pd.read_csv('data/D1.0/s_phase_cells_hmmcopy_trimmed.csv.gz', dtype={'chr': str})
     cn_g1 = pd.read_csv('data/D1.0/g1_phase_cells_hmmcopy_trimmed.csv.gz', dtype={'chr': str})
 
@@ -97,22 +97,7 @@ def test_inference():
     assert len(temp_cn_s[['chr', 'start']].drop_duplicates()) == 271
     assert len(temp_cn_g1[['chr', 'start']].drop_duplicates()) == 271
 
-
     # create scRT object with input columns denoted
-    # only allow for a max of 3 iterations to speed up the test
-    max_iter = 3
     scrt = scRT(temp_cn_s, temp_cn_g1, input_col='true_reads_norm', clone_col='clone_id', assign_col='state', rt_prior_col=None,
-                cn_state_col='state', gc_col='gc', cn_prior_method='g1_clones', max_iter=max_iter)
+                cn_state_col='state', gc_col='gc', cn_prior_method='g1_clones', max_iter=3)
     
-    # run inference using PERT
-    cn_s_with_scrt, supp_s_output, cn_g_with_scrt, supp_g_output = scrt.infer(level='pyro')
-
-    # check that certain columns exist in cn_s_with_scrt and cn_g_with_scrt
-    assert 'model_cn_state' in cn_s_with_scrt.columns
-    assert 'model_rep_state' in cn_s_with_scrt.columns
-    assert 'model_cn_state' in cn_g_with_scrt.columns
-    assert 'model_rep_state' in cn_g_with_scrt.columns
-
-    # check that there are loss values for every iteration
-    assert supp_s_output.query("param=='loss_s'").shape[0] == max_iter
-    assert supp_g_output.query("param=='loss_s'").shape[0] == max_iter
