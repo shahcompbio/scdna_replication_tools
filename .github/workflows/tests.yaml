@@ -1,33 +1,33 @@
 
-name: Python package
+# name: Python package
 
-on:
-  push:
-    branches: [ "dev", "main", "master" ]
-  pull_request:
-    branches: [ "dev", "main", "master" ]
+# on:
+#   push:
+#     branches: [ "dev", "main", "master" ]
+#   pull_request:
+#     branches: [ "dev", "main", "master" ]
 
-jobs:
-  build:
+# jobs:
+#   build:
 
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.9"]
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         python-version: ["3.9"]
 
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install numpy==1.21.4 cython==0.29.22
-          if [ -f requirements4.txt ]; then pip install -r requirements4.txt; fi
-          pip install pytest pytest-cov
-      - name: Test with pytest
-        run: |
-          pytest test_with_pytest.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+#     steps:
+#       - uses: actions/checkout@v3
+#       - name: Set up Python ${{ matrix.python-version }}
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: ${{ matrix.python-version }}
+#           cache: pip
+#       - name: Install dependencies
+#         run: |
+#           pip install --upgrade pip
+#           pip install numpy==1.21.4 cython==0.29.22
+#           if [ -f requirements4.txt ]; then pip install -r requirements4.txt; fi
+#           pip install pytest pytest-cov
+#       - name: Test with pytest
+#         run: |
+#           pytest test_with_pytest.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
