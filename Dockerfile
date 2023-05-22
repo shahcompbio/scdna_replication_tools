@@ -32,7 +32,7 @@ RUN python setup.py develop
 
 # Run unit tests
 RUN pip install pytest pytest-cov
-RUN pytest test_with_pytest.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+RUN pytest test_with_pytest.py --doctest-modules
 
 # Expose any required ports
 # EXPOSE <port_number>
