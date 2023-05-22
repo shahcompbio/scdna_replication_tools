@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 from scdna_replication_tools.pert_simulator import pert_simulator
+from scdna_replication_tools.infer_scRT import scRT
 
 
 def test_always_passes():
@@ -75,3 +76,43 @@ def test_pert_simulator():
 
     # check that true_rep in cn_g are all 0s
     assert np.all(cn_g['true_rep'] == 0)
+
+
+def test_inference():
+    cn_s = pd.read_csv('data/D1.0/s_phase_cells_hmmcopy_trimmed.csv.gz', dtype={'chr': str})
+    cn_g1 = pd.read_csv('data/D1.0/g1_phase_cells_hmmcopy_trimmed.csv.gz', dtype={'chr': str})
+
+    # add the replication columns for the G1-phase cells
+    cn_g1['true_rep'] = 0.0
+    cn_g1['true_p_rep'] = 0.0
+    cn_g1['true_t'] = 1.0
+
+    # temporarily remove columns that don't get used by PERT
+    temp_cn_s = cn_s[['cell_id', 'chr', 'start', 'end', 'gc', 'state', 'library_id', 'true_reads_norm']]
+    temp_cn_g1 = cn_g1[['cell_id', 'chr', 'start', 'end', 'gc', 'clone_id', 'state', 'library_id', 'true_reads_norm']]
+
+    # asser that there are 400 cells and 271 loci in both cell cycle phases
+    assert len(temp_cn_s['cell_id'].unique()) == 400
+    assert len(temp_cn_g1['cell_id'].unique()) == 400
+    assert len(temp_cn_s[['chr', 'start']].drop_duplicates()) == 271
+    assert len(temp_cn_g1[['chr', 'start']].drop_duplicates()) == 271
+
+
+    # create scRT object with input columns denoted
+    # only allow for a max of 3 iterations to speed up the test
+    max_iter = 3
+    scrt = scRT(temp_cn_s, temp_cn_g1, input_col='true_reads_norm', clone_col='clone_id', assign_col='state', rt_prior_col=None,
+                cn_state_col='state', gc_col='gc', cn_prior_method='g1_clones', max_iter=max_iter)
+    
+    # run inference using PERT
+    cn_s_with_scrt, supp_s_output, cn_g_with_scrt, supp_g_output = scrt.infer(level='pyro')
+
+    # check that certain columns exist in cn_s_with_scrt and cn_g_with_scrt
+    assert 'model_cn_state' in cn_s_with_scrt.columns
+    assert 'model_rep_state' in cn_s_with_scrt.columns
+    assert 'model_cn_state' in cn_g_with_scrt.columns
+    assert 'model_rep_state' in cn_g_with_scrt.columns
+
+    # check that there are loss values for every iteration
+    assert supp_s_output.query("param=='loss_s'").shape[0] == max_iter
+    assert supp_g_output.query("param=='loss_s'").shape[0] == max_iter
