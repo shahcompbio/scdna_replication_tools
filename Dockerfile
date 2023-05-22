@@ -30,6 +30,10 @@ RUN pip install --no-cache-dir -r requirements4.txt
 # Install the package in development mode
 RUN python setup.py develop
 
+# Run unit tests
+RUN pip install pytest pytest-cov
+RUN pytest test_with_pytest.py --doctest-modules
+
 # Expose any required ports
 # EXPOSE <port_number>
 
