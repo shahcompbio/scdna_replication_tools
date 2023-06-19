@@ -665,7 +665,7 @@ class pert_infer_scRT():
 
         logging.info('-' * 40)
         model_s = self.model_s
-        model_g1 = self.model_g1
+        # model_g1 = self.model_g1
 
         cn_g1_reads_df, cn_g1_states_df, cn_s_reads_df, cn_s_states_df, \
             cn_g1_reads, cn_g1_states, cn_s_reads, cn_s_states, \
@@ -730,6 +730,15 @@ class pert_infer_scRT():
             num_loci, num_cells = cn_s_states.shape
             etas = torch.ones(num_loci, num_cells, self.P) / self.P
 
+        # the G1/2-phase model is the same as the S-phase model except the 'cn' and 'rep' states are conditioned
+        # TODO: have some cells be conditioned as fully replicated or unreplicated (currently all unreplicated)
+        model_g1 = poutine.condition(
+            model_s,
+            data={
+                'cn': cn_g1_states,
+                'rep': torch.zeros(cn_g1_states.shape),
+            })
+
         # fit GC params using G1-phase cells    
         guide_g1 = AutoDelta(poutine.block(model_g1, expose_fn=lambda msg: msg["name"].startswith("expose_")))
 
@@ -742,7 +751,7 @@ class pert_infer_scRT():
         logging.info('STEP 1: Learning reads to CN bias from low variance cells.')
         losses_g = []
         for i in range(self.max_iter_step1):
-            loss = svi.step(gammas, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
+            loss = svi.step(gammas, libs_g1, data=cn_g1_reads)
 
             losses_g.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
@@ -761,14 +770,14 @@ class pert_infer_scRT():
 
 
         # replay model
-        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gammas, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
+        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gammas, libs_g1, data=cn_g1_reads)
         trained_model_g1 = poutine.replay(model_g1, trace=guide_trace_g1)
 
         # infer discrete sites and get model trace
         inferred_model_g1 = infer_discrete(
             trained_model_g1, temperature=0,
             first_available_dim=-3)
-        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gammas, libs_g1, cn=cn_g1_states, data=cn_g1_reads)
+        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gammas, libs_g1, data=cn_g1_reads)
 
         # extract fitted parameters
         lambda_fit = trace_g1.nodes['expose_lambda']['value'].detach()
