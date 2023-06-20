@@ -710,7 +710,7 @@ class pert_infer_scRT():
 
         logging.info('Doubling the G-phase data to create both G1- and G2-phase training data for step 1')
         cn_g1_g2_states, cn_g1_g2_reads, libs_g1_g2, rep_g1_g2 = \
-            self.make_g1_g2_training_data(cn_g1_states, cn_g1_reads, gammas, libs_g1)
+            self.make_g1_g2_training_data(cn_g1_states, cn_g1_reads, libs_g1)
 
         # the G1/2-phase model is the same as the S-phase model except the 'cn' and 'rep' states are conditioned
         logging.info('Conditioning S-phase model to appear as a G1/2-phase model')
