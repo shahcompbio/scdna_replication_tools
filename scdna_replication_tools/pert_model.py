@@ -223,15 +223,11 @@ class pert_infer_scRT():
         return libs_s, libs_g1
 
 
-    def make_g1_g2_training_data(self, cn_g1_states, cn_g1_reads, gammas_g1, libs_g1):
+    def make_g1_g2_training_data(self, cn_g1_states, cn_g1_reads, libs_g1):
         """
         Given all the G1/2-phase cells, create corresponding tensors that where 
         each cell in the input is seen twice - once as G1-phase and once as G2-phase.
         """
-        # gammas_g1 is of shape (num_cells, num_libraries)
-        # concatenate with itself to create a tensor of shape (2*num_cells, num_libraries)
-        gammas_g1_g2 = torch.cat([gammas_g1, gammas_g1], dim=0)
-
         # libs_g1 is of shape (num_cells,)
         # concatenate with itself to create a tensor of shape (2*num_cells,)
         libs_g1_g2 = torch.cat([libs_g1, libs_g1], dim=0)
@@ -246,11 +242,11 @@ class pert_infer_scRT():
 
         # rep_g1_g2 should be a tensor of shape (num_loci, 2*num_cells)
         # the first num_cells rows should be all 0s, the second num_cells rows should be all 1s
-        rep_g1 = torch.zeros(cn_g1_g2_states.shape)
-        rep_g2 = torch.ones(cn_g1_g2_states.shape)
+        rep_g1 = torch.zeros(cn_g1_states.shape)
+        rep_g2 = torch.ones(cn_g1_states.shape)
         rep_g1_g2 = torch.cat([rep_g1, rep_g2], dim=1)
 
-        return cn_g1_g2_states, cn_g1_g2_reads, gammas_g1_g2, libs_g1_g2, rep_g1_g2
+        return cn_g1_g2_states, cn_g1_g2_reads, libs_g1_g2, rep_g1_g2
 
 
     def convert_rt_prior_units(self, rt_prior_profile):
@@ -713,7 +709,7 @@ class pert_infer_scRT():
             etas = torch.ones(num_loci, num_cells, self.P) / self.P
 
         logging.info('Doubling the G-phase data to create both G1- and G2-phase training data for step 1')
-        cn_g1_g2_states, cn_g1_g2_reads, gammas_g1_g2, libs_g1_g2, rep_g1_g2 = \
+        cn_g1_g2_states, cn_g1_g2_reads, libs_g1_g2, rep_g1_g2 = \
             self.make_g1_g2_training_data(cn_g1_states, cn_g1_reads, gammas, libs_g1)
 
         # the G1/2-phase model is the same as the S-phase model except the 'cn' and 'rep' states are conditioned
@@ -737,7 +733,7 @@ class pert_infer_scRT():
         logging.info('STEP 1: Learning reads to CN bias from low variance cells.')
         losses_g = []
         for i in range(self.max_iter_step1):
-            loss = svi.step(gammas_g1_g2, libs_g1_g2, data=cn_g1_g2_reads)
+            loss = svi.step(gammas, libs_g1_g2, data=cn_g1_g2_reads)
 
             losses_g.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
@@ -756,14 +752,14 @@ class pert_infer_scRT():
 
 
         # replay model
-        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gammas_g1_g2, libs_g1_g2, data=cn_g1_g2_reads)
+        guide_trace_g1 = poutine.trace(guide_g1).get_trace(gammas, libs_g1_g2, data=cn_g1_g2_reads)
         trained_model_g1 = poutine.replay(model_g1, trace=guide_trace_g1)
 
         # infer discrete sites and get model trace
         inferred_model_g1 = infer_discrete(
             trained_model_g1, temperature=0,
             first_available_dim=-3)
-        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gammas_g1_g2, libs_g1_g2, data=cn_g1_g2_reads)
+        trace_g1 = poutine.trace(inferred_model_g1).get_trace(gammas, libs_g1_g2, data=cn_g1_g2_reads)
 
         # extract fitted parameters
         lambda_fit = trace_g1.nodes['expose_lambda']['value'].detach()
