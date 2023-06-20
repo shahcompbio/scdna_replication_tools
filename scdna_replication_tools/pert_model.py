@@ -271,8 +271,10 @@ class pert_infer_scRT():
         return trans_mat
 
 
-    def build_cn_prior(self, cn, weight=self.cn_prior_weight):
+    def build_cn_prior(self, cn, weight=None):
         """ Build a matrix with the cn prior concentration (eta) for each bin's cn state based on its value in cn. """
+        if weight == None:
+            weight = self.cn_prior_weight
         num_loci, num_cells = cn.shape
         etas = torch.ones(num_loci, num_cells, self.P)
         for i in range(num_loci):
