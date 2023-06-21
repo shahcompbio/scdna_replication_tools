@@ -844,7 +844,7 @@ class pert_infer_scRT():
                 })
 
             # use clone pseudobulk profiles to set the CN prior of each cell
-            etas2 = self.build_clone_cn_prior(self.cn_g1, cn_g1_reads_df, cn_g1_states, clone_cn_profiles, weight=1e6)
+            etas2 = self.build_clone_cn_prior(self.cn_g1, cn_g1_reads_df, cn_g1_states, clone_cn_profiles)
 
             # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
             t_init2, t_alpha_prior2, t_beta_prior2 = self.guess_times(cn_g1_reads, etas2)
