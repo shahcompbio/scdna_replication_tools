@@ -10,8 +10,8 @@ from matplotlib.patches import Patch
 
 
 def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max_cn=13,
-                          chromosome=None, s=5, squashy=False, color=None, alpha=1,
-                          lines=False, label=None, scale_data=False):
+                          chromosome=None, s=5, squashy=False, color=None, alpha=1, rawy=False,
+                          lines=False, label=None, scale_data=False, rasterized=True):
     """ Plot copy number profile on a genome axis
 
     Args:
@@ -24,6 +24,7 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
         max_cn: max copy number for y axis
         chromosome: single chromosome plot
         s: size of scatter points
+        rasterized: when true, raterize the scatter points in the figure to save space
 
     The cn_data table should have the following columns (in addition to value_field_name and
     optionally cn_field_name):
@@ -73,15 +74,18 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
             plot_data['start'], plot_data[value_field_name],
             c=plot_data[cn_field_name], s=s, alpha=alpha, label=label,
             cmap=get_cn_cmap(plot_data[cn_field_name].astype(int).values),
+            rasterized=rasterized
         )
     elif color is not None:
          ax.scatter(
             plot_data['start'], plot_data[value_field_name],
-            c=color, s=s, alpha=alpha, label=label
+            c=color, s=s, alpha=alpha, label=label,
+            rasterized=rasterized
         )
     else:
         ax.scatter(
-            plot_data['start'], plot_data[value_field_name], s=s, alpha=alpha, label=label
+            plot_data['start'], plot_data[value_field_name], s=s, alpha=alpha, label=label,
+            rasterized=rasterized
         )
     
     if chromosome is not None:
@@ -108,7 +112,7 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
         ax.xaxis.set_minor_locator(matplotlib.ticker.FixedLocator(refgenome.info.chromosome_mid))
         ax.xaxis.set_minor_formatter(matplotlib.ticker.FixedFormatter(refgenome.info.chromosomes))
 
-    if squashy:
+    if squashy and not rawy:
         yticks = np.array([0, 2, 4, 7, 20])
         yticks_squashed = squash_f(yticks)
         ytick_labels = [str(a) for a in yticks]
@@ -116,7 +120,7 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
         ax.set_yticklabels(ytick_labels)
         ax.set_ylim((-0.01, 1.01))
         ax.spines['left'].set_bounds(0, 1)
-    elif max_cn is not None:
+    elif not rawy:
         ax.set_ylim((-0.05*max_cn, max_cn))
         ax.set_yticks(range(0, int(max_cn) + 1))
         ax.spines['left'].set_bounds(0, max_cn)
