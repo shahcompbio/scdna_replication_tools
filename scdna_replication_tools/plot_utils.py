@@ -11,7 +11,8 @@ from matplotlib.patches import Patch
 
 def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max_cn=13,
                           chromosome=None, s=5, squashy=False, color=None, alpha=1, rawy=False,
-                          lines=False, label=None, scale_data=False, rasterized=True):
+                          lines=False, label=None, scale_data=False, rasterized=True,
+                          min_ci_field_name=None, max_ci_field_name=None):
     """ Plot copy number profile on a genome axis
 
     Args:
@@ -57,14 +58,29 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
             ax.plot(
                 plot_data['start'], plot_data[value_field_name], alpha=0.3, c='k', label=''
             )
+            if min_ci_field_name and max_ci_field_name:
+                ax.fill_between(
+                    plot_data['start'], plot_data[min_ci_field_name], plot_data[max_ci_field_name],
+                    alpha=0.2, color='k', label=''
+                )
         elif color is not None:
             ax.plot(
                 plot_data['start'], plot_data[value_field_name], alpha=0.3, c=color, label=''
             )
+            if min_ci_field_name and max_ci_field_name:
+                ax.fill_between(
+                    plot_data['start'], plot_data[min_ci_field_name], plot_data[max_ci_field_name],
+                    alpha=0.2, color=color, label=''
+                )
         else:
             ax.plot(
                 plot_data['start'], plot_data[value_field_name], alpha=0.3, label=''
             )
+            if min_ci_field_name and max_ci_field_name:
+                ax.fill_between(
+                    plot_data['start'], plot_data[min_ci_field_name], plot_data[max_ci_field_name],
+                    alpha=0.2, label=''
+                )
     
     if label is None:
         label = value_field_name
