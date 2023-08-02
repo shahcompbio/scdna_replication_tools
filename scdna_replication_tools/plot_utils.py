@@ -312,7 +312,8 @@ def get_phase_cmap():
         'G1/2': 'dodgerblue',
         'G1': 'dodgerblue',
         'G2': 'lightblue',
-        'LQ': 'lightgrey'
+        'LQ': 'lightgrey',
+        'G2M': 'yellowgreen'
     }
     return cmap
 
@@ -351,7 +352,18 @@ def get_acc_cmap(return_colors=False):
         color_list.append(acc_colors[i])
     if return_colors:
         return ListedColormap(color_list), acc_colors
-    return ListedColormap(color_list)        
+    return ListedColormap(color_list)
+
+
+def get_cna_cmap():
+    ''' Global color map for copy number alterations '''
+    cmap = {
+        'gain': 'red',  # red
+        'loss': 'deepskyblue',  # dark blue
+        'neutral': '#CCCCCC',  # grey
+        'unaltered': '#CCCCCC'  # grey
+    }
+    return cmap   
 
 
 def get_clone_cmap():
