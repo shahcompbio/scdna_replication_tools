@@ -355,6 +355,19 @@ def get_acc_cmap(return_colors=False):
     return ListedColormap(color_list)
 
 
+def get_methods_cmap():
+    cmap = {
+        'PERT clone': 'olive',
+        'PERT comp.': 'yellowgreen',
+        'PERT': 'yellowgreen',
+        'Kronos': 'lightcoral',
+        'laks': 'darksalmon',
+        'Laks': 'darksalmon',
+        'true': 'steelblue'
+    }
+    return cmap
+
+
 def get_cna_cmap():
     ''' Global color map for copy number alterations '''
     cmap = {

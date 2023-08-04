@@ -1,12 +1,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scgenome.cnplot import plot_clustered_cell_cn_matrix
 from matplotlib import colors as mcolors
 from matplotlib.patches import Patch
 from scgenome import cncluster
 from argparse import ArgumentParser
-from scdna_replication_tools.plot_utils import get_rt_cmap, get_clone_cmap, plot_colorbar, make_color_mat_float
+from scdna_replication_tools.plot_utils import get_rt_cmap, get_clone_cmap, plot_colorbar, make_color_mat_float, plot_clustered_cell_cn_matrix
 
 
 def get_args():
@@ -28,7 +27,8 @@ def plot_model_results(
     top_title_prefix='S-phase cells', bottom_title_prefix='G1/2-phase cells',
     rpm_title='Reads per million', input_cn_title='Input CN states',
     output_cn_title='PERT CN states', rep_title='PERT replication states', 
-    rt_cmap=get_rt_cmap(), clone_cmap=get_clone_cmap(), rpm_cmap='viridis'
+    rt_cmap=get_rt_cmap(), clone_cmap=get_clone_cmap(), rpm_cmap='viridis',
+    chromosome=None, chrom_boundary_width=1, chrom_labels_to_remove=[]
     ):
     ''' 
     Plot input and output PERT heatmaps for S-phase and G1/2-phase cells. 
@@ -81,6 +81,12 @@ def plot_model_results(
         colormap for clone IDs
     rpm_cmap : str
         colormap for reads per million
+    chromosome : str
+        chromosome to plot if we wish to only show one chr instead of the full genome (optional)
+    chrom_boundary_width : int
+        width of the chromosome boundary lines (optional)
+    chrom_labels_to_remove : list
+        list of chromosome labels to remove along the x-axis (optional)
     '''
 
     # create mapping of clone IDs
@@ -98,28 +104,33 @@ def plot_model_results(
     # top left corner is the rpm
     ax0 = fig.add_axes([0.05,0.5,0.23,0.45])
     plot_data0 = plot_clustered_cell_cn_matrix(
-        ax0, cn_s, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, max_cn=None, raw=True, cmap=rpm_cmap
+        ax0, cn_s, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, 
+        max_cn=None, raw=True, cmap=rpm_cmap, chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, 
+        chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax0.set_title('{}\n{}'.format(top_title_prefix, rpm_title))
 
     # top mid-left is the hmmcopy states
     ax1 = fig.add_axes([0.29,0.5,0.23,0.45])
     plot_data1 = plot_clustered_cell_cn_matrix(
-        ax1, cn_s, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
+        ax1, cn_s, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax1.set_title('{}\n{}'.format(top_title_prefix, input_cn_title))
 
     # top mid-right is the model cn states
     ax2 = fig.add_axes([0.53,0.5,0.23,0.45])
     plot_data2 = plot_clustered_cell_cn_matrix(
-        ax2, cn_s, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
+        ax2, cn_s, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax2.set_title('{}\n{}'.format(top_title_prefix, output_cn_title))
 
     # top right corner is the replication states
     ax3 = fig.add_axes([0.77,0.5,0.23,0.45])
     plot_data3 = plot_clustered_cell_cn_matrix(
-        ax3, cn_s, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap
+        ax3, cn_s, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax3.set_title('{}\n{}'.format(top_title_prefix, rep_title))
 
@@ -127,28 +138,33 @@ def plot_model_results(
     # bottom left corner is the rpm
     ax4 = fig.add_axes([0.05,0.0,0.23,0.45])
     plot_data4 = plot_clustered_cell_cn_matrix(
-        ax4, cn_g, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, max_cn=None, raw=True, cmap=rpm_cmap
+        ax4, cn_g, rpm_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, 
+        max_cn=None, raw=True, cmap=rpm_cmap, chromosome=chromosome, chrom_boundary_width=chrom_boundary_width,
+        chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax4.set_title('{}\n{}'.format(bottom_title_prefix, rpm_title))
 
     # bottom mid-left is the hmmcopy states
     ax5 = fig.add_axes([0.29,0.0,0.23,0.45])
     plot_data5 = plot_clustered_cell_cn_matrix(
-        ax5, cn_g, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
+        ax5, cn_g, input_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax5.set_title('{}\n{}'.format(bottom_title_prefix, input_cn_title))
 
     # bottom mid-right is the model cn states
     ax6 = fig.add_axes([0.53,0.0,0.23,0.45])
     plot_data6 = plot_clustered_cell_cn_matrix(
-        ax6, cn_g, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col
+        ax6, cn_g, output_cn_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax6.set_title('{}\n{}'.format(bottom_title_prefix, output_cn_title))
 
     # bottom right corner is the replication states
     ax7 = fig.add_axes([0.77,0.0,0.23,0.45])
     plot_data7 = plot_clustered_cell_cn_matrix(
-        ax7, cn_g, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap
+        ax7, cn_g, output_rep_col, cluster_field_name=cluster_col, secondary_field_name=second_sort_col, cmap=rt_cmap,
+        chromosome=chromosome, chrom_boundary_width=chrom_boundary_width, chrom_labels_to_remove=chrom_labels_to_remove
     )
     ax7.set_title('{}\n{}'.format(bottom_title_prefix, rep_title))
 
