@@ -164,8 +164,9 @@ def plot_cell_cn_profile2(ax, cn_data, value_field_name, cn_field_name=None, max
 
 
 def plot_clustered_cell_cn_matrix(
-    ax, cn_data, cn_field_name, cluster_field_name='cluster_id', secondary_field_name=None, 
-    raw=False, max_cn=13, cmap=None, chromosome=None, chrom_boundary_width=1, chrom_labels_to_remove=[]):
+    ax, cn_data, cn_field_name, cluster_field_name='cluster_id', secondary_field_name=None,
+    raw=False, max_cn=13, cmap=None, chromosome=None, chrom_boundary_width=1, chrom_labels_to_remove=[],
+    vmin=None, vmax=None):
     
     if chromosome is not None:
         cn_data = cn_data.query('chr=="{}"'.format(chromosome))
@@ -210,7 +211,7 @@ def plot_clustered_cell_cn_matrix(
     if not raw and cmap is None:
         cmap = get_cn_cmap(plot_data.values)
 
-    im = ax.imshow(plot_data.astype(float).T, aspect='auto', cmap=cmap, interpolation='none')
+    im = ax.imshow(plot_data.astype(float).T, aspect='auto', cmap=cmap, interpolation='none', vmin=vmin, vmax=vmax)
 
     if chromosome is not None:
         ax.set_xlabel(f'chr{chromosome}')
@@ -309,8 +310,10 @@ def get_phase_cmap():
     ''' Global color map for cell cycle phases '''
     cmap = {
         'S': 'goldenrod',
+        1: 'goldenrod',
         'G1/2': 'dodgerblue',
         'G1': 'dodgerblue',
+        0: 'dodgerblue',
         'G2': 'lightblue',
         'LQ': 'lightgrey',
         'G2M': 'yellowgreen'
@@ -479,6 +482,7 @@ def get_metacohort_cmaps(return_cdicts=False):
         'FBI': 'plum', 0: 'plum',
         'HRD': 'cyan', 1: 'cyan',
         'TD': 'coral', 2: 'coral',
+        'NA': 'white', 3: 'white', np.nan: 'white', 'N/A': 'white', None: 'white'
     }
     signature_cmap = LinearSegmentedColormap.from_list('signature_cmap', list(signature_cdict.values()), N=len(signature_cdict))
 
