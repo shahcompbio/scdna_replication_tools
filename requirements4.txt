@@ -142,7 +142,7 @@ py==1.10.0
 pyasn1==0.4.5
 pyBigWig==0.3.18
 pycparser==2.19
-pyfaidx==0.6.3.1
+pyfaidx==0.6.4
 Pygments==2.4.2
 PyJWT==1.7.1
 pyliftover==0.4
