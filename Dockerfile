@@ -24,6 +24,7 @@ COPY . /app
 # RUN /bin/bash -c "source venv/bin/activate"
 
 # Install dependencies
+RUN pip install --upgrade pip
 RUN pip install numpy==1.21.4 cython==0.29.22
 RUN pip install --no-cache-dir -r requirements4.txt
 
