@@ -5,6 +5,12 @@ FROM python:3.7.4
 RUN --mount=type=secret,id=github_token \
   export GITHUB_PAT=$(cat /run/secrets/github_token)
 
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the local files into the container
+COPY . /app
+
 # # Clone the GitHub repository
 # RUN git clone https://github.com/shahcompbio/scdna_replication_tools.git
 
@@ -23,12 +29,6 @@ RUN pip install --no-cache-dir -r requirements4.txt
 
 # Install the package in development mode
 RUN python setup.py develop
-
-# Copy the local files into the container
-COPY . /app
-
-# Set the working directory inside the container
-WORKDIR /app
 
 # Expose any required ports
 # EXPOSE <port_number>
