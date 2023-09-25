@@ -59,11 +59,11 @@ funcsigs==1.0.2
 funsor==0.4.3
 graphviz==0.20
 h5py==3.6.0
-hdbscan==0.8.27
+hdbscan==0.8.33
 hmmlearn==0.2.5
 idna==2.8
 imagesize==1.2.0
-importlib-metadata==3.7.3
+importlib-metadata==4.4
 iniconfig==1.1.1
 ipaddress==1.0.22
 ipykernel==5.5.0
@@ -184,8 +184,8 @@ singledispatch==3.4.0.3
 -e git+https://github.com/shahcompbio/sisyphus.git@78c708b1dcf93f85e66b5faaafff581e56880c88#egg=sisyphus
 six==1.13.0
 snowballstemmer==2.1.0
-sorted-nearest==0.0.33
-Sphinx==1.8.5
+sorted-nearest==0.0.39
+Sphinx==5.1.1
 sphinxcontrib-serializinghtml==1.1.5
 sphinxcontrib-websupport==1.2.4
 statannot==0.2.3
