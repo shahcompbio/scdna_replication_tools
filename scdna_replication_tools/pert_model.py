@@ -34,7 +34,7 @@ log.addHandler(debug_handler)
 
 
 class pert_infer_scRT():
-    def __init__(self, cn_s, cn_g1, input_col='reads', gc_col='gc', rt_prior_col='mcf7rt',
+    def __init__(self, cn_s, cn_g1, input_col='reads', gc_col='gc', rt_prior_col=None, rt_init_col=None,
                  clone_col='clone_id', cell_col='cell_id', library_col='library_id', 
                  chr_col='chr', start_col='start', cn_state_col='state', assign_col='copy',
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
@@ -48,6 +48,7 @@ class pert_infer_scRT():
         :param input_col: column containing read count input. (str)
         :param gc_col: column for gc content of each bin. (str)
         :param rt_prior_col: column RepliSeq-determined replication timing values to be used as a prior. (str)
+        :param rt_init_col: column RepliSeq-determined replication timing values to be used as an initialisation. (str)
         :param clone_col: column for clone ID of each cell. (str)
         :param cell_col: column for cell ID of each cell. (str)
         :param library_col: column for library ID of each cell. (str)
@@ -81,6 +82,7 @@ class pert_infer_scRT():
         self.input_col = input_col
         self.gc_col = gc_col
         self.rt_prior_col = rt_prior_col
+        self.rt_init_col = rt_init_col
         self.clone_col = clone_col
         self.cell_col = cell_col
         self.library_col = library_col
@@ -532,7 +534,7 @@ class pert_infer_scRT():
 
 
     @config_enumerate
-    def model_s(self, gammas, libs, cn0=None, rho0=None, num_cells=None, num_loci=None, data=None, etas=None, lamb=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
+    def model_s(self, gammas, libs, cn0=None, rho0=None, rho_init=None, num_cells=None, num_loci=None, data=None, etas=None, lamb=None, lambda_init=1e-1, t_alpha_prior=None, t_beta_prior=None, t_init=None):
         with ignore_jit_warnings():
             if data is not None:
                 num_loci, num_cells = data.shape
@@ -564,7 +566,10 @@ class pert_infer_scRT():
         else:
             with loci_plate:
                 # bulk replication timing profile
-                rho = pyro.sample('expose_rho', dist.Beta(torch.tensor([1.]), torch.tensor([1.])))
+                if rho_init is not None:
+                    rho = pyro.param('expose_rho', rho_init, constraint=constraints.unit_interval)
+                else:
+                    rho = pyro.sample('expose_rho', dist.Beta(torch.tensor([1.]), torch.tensor([1.])))
 
         with cell_plate:
 
@@ -771,6 +776,15 @@ class pert_infer_scRT():
         pyro.clear_param_store()
         pyro.enable_validation(False)
 
+        # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
+        t_init, t_alpha_prior, t_beta_prior = self.guess_times(cn_s_reads, etas)
+
+        # if the user has provided an initialization for RT, extract that as a tensor
+        if self.rt_init_col is not None:
+            rho_init = torch.tensor(cn_s_reads_df[self.rt_init_col].values)
+        else:
+            rho_init = None
+
         # condition gc betas of S-phase model using fitted results from G1-phase model
         model_s = poutine.condition(
             model_s,
@@ -778,9 +792,6 @@ class pert_infer_scRT():
                 'expose_beta_means': beta_means_fit,
                 'expose_beta_stds': beta_stds_fit,
             })
-
-        # use manhattan binarization method to come up with an initial guess for each cell's time in S-phase
-        t_init, t_alpha_prior, t_beta_prior = self.guess_times(cn_s_reads, etas)
 
         guide_s = AutoDelta(poutine.block(model_s, expose_fn=lambda msg: msg["name"].startswith("expose_")))
         optim_s = pyro.optim.Adam({'lr': self.learning_rate, 'betas': [0.8, 0.99]})
@@ -791,7 +802,7 @@ class pert_infer_scRT():
         logging.info('STEP 2: Jointly infer replication and CN states in high variance cells.')
         losses_s = []
         for i in range(self.max_iter):
-            loss = svi_s.step(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
+            loss = svi_s.step(gammas, libs_s, rho_init=rho_init, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
             losses_s.append(loss)
             logging.info('step: {}, loss: {}'.format(i, loss))
@@ -810,14 +821,14 @@ class pert_infer_scRT():
 
 
         # replay model
-        guide_trace_s = poutine.trace(guide_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
+        guide_trace_s = poutine.trace(guide_s).get_trace(gammas, libs_s, rho_init=rho_init, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
         trained_model_s = poutine.replay(model_s, trace=guide_trace_s)
 
         # infer discrete sites and get model trace
         inferred_model_s = infer_discrete(
             trained_model_s, temperature=0,
             first_available_dim=-3)
-        trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
+        trace_s = poutine.trace(inferred_model_s).get_trace(gammas, libs_s, rho_init=rho_init, data=cn_s_reads, etas=etas, lamb=lambda_fit, t_init=t_init)
 
         # get output dataframes based on learned latent parameters and states
         cn_s_out, supp_s_out_df = self.package_s_output(self.cn_s, trace_s, cn_s_reads_df, lambda_fit, losses_g, losses_s)

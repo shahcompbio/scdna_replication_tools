@@ -24,9 +24,9 @@ def get_args():
 
 class scRT:
     def __init__(self, cn_s, cn_g1, input_col='reads', assign_col='copy', library_col='library_id', ploidy_col='ploidy',
-                 cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc',
-                 rv_col='rt_value', rs_col='rt_state', frac_rt_col='frac_rt', clone_col='clone_id', rt_prior_col='mcf7rt',
-                 cn_prior_method='hmmcopy', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
+                 cell_col='cell_id', cn_state_col='state', chr_col='chr', start_col='start', gc_col='gc', 
+                 frac_rt_col='frac_rt', clone_col='clone_id', rt_init_col=None, rt_prior_col=None, cn_prior_method='hmmcopy', 
+                 rv_col='rt_value', rs_col='rt_state', col2='rpm_gc_norm', col3='temp_rt', col4='changepoint_segments', col5='binary_thresh',
                  max_iter=2000, min_iter=100, max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
                  cn_prior_weight=1e6, learning_rate=0.05, rel_tol=1e-6, cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
         self.cn_s = cn_s
@@ -50,6 +50,7 @@ class scRT:
         self.gc_col = gc_col
         self.ploidy_col = ploidy_col
         self.rt_prior_col = rt_prior_col
+        self.rt_init_col = rt_init_col
 
         # column representing continuous replication timing value of each bin
         self.rv_col = rv_col
@@ -151,7 +152,7 @@ class scRT:
 
         # run pyro model to get replication timing states
         print('using {} as cn_prior_method'.format(self.cn_prior_method))
-        pert_model = pert_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col,
+        pert_model = pert_infer_scRT(self.cn_s, self.cn_g1, input_col=self.input_col, gc_col=self.gc_col, rt_prior_col=self.rt_prior_col, rt_init_col=self.rt_init_col,
                                      clone_col=self.clone_col, cell_col=self.cell_col, library_col=self.library_col, assign_col=self.assign_col,
                                      chr_col=self.chr_col, start_col=self.start_col, cn_state_col=self.cn_state_col,
                                      rs_col=self.rs_col, frac_rt_col=self.frac_rt_col, cn_prior_method=self.cn_prior_method, cn_prior_weight=self.cn_prior_weight,
