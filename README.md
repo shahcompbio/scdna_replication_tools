@@ -5,6 +5,12 @@ Method for probabilistic estimation of replication timing (PERT) from single-cel
 
 It is recommended that you use the docker image to run PERT. To do so, use [docker](https://docs.docker.com/get-docker/) or [singularity](https://docs.sylabs.io/guides/2.6/user-guide/singularity_and_docker.html) to pull the following [docker image](https://hub.docker.com/r/adamcweiner/scdna_replication_tools). This docker image contains all the necessary dependencies to run PERT and is automatically updated with the latest version of `main` using Github Actions.
 
+When pulling the docker image, be sure to specify the `main` tag as its omission will produce an error.
+
+```
+docker pull adamcweiner/scdna_replication_tools:main
+```
+
 If you do not wish to use the docker container, you can set up a conda environment with the correct python version and use pip to install all the requirements in a virtual environment:
 
 ```
@@ -49,7 +55,9 @@ The main output when running PERT for scRT inference is a pandas dataframe with 
 `model_rep_state`: the estimated replication state for each bin. This is a binary variable between 0 and 1, with 0 indicating the bin is unreplicated and 1 indicating the bin replicated.
 `model_cn_state`: the estimated somatic copy number for each bin. These will be integer values ranging from 0-11 (same domain as input `state`). 
 
-While there are other columns in the output dataframe, these are the most important for downstream analysis. These columns are used for downstream computation of pseudobulk replication timing profiles, each cell's fraction of replicated bins, cell cycle phase predictions, and a sample's time from scheduled replication (T-width). Other output columns from pert_model.py correspond to the name of different latent variables in the graphical model (see paper for details).
+While there are other columns in the output dataframe, these are the most important for downstream analysis. Other output columns from pert_model.py correspond to the name of different latent variables in the graphical model (see paper for details). The output of this dataframe must then be passed into [`predict_cell_cycle_phase()`](https://github.com/shahcompbio/scdna_replication_tools/blob/main/scdna_replication_tools/predict_cycle_phase.py) to predict the phase of each cell. 
+
+We caution against directly using `model_rho` and `model_tau` for analysis of a loci's replication timing or cell's S-phase time as the only thing that matters is their relative value to one another within each PERT run. For instance, for the same sample you can get rho and tau values that all lie between 0.1-0.2 in one run and values between 0.4-0.9 but as long as the relative ordering of rho and tau values are the same, all the replication (`model_rep_state`) and somatic copy number (`model_cn_state`) states should be the same. Because of this phenomenon, users wishing to compute cell times within S-phase should access the `cell_frac_rep` column that gets produced after [predicting the revised cell cycle phases](https://github.com/shahcompbio/scdna_replication_tools/blob/main/scdna_replication_tools/predict_cycle_phase.py). Similarly, users wishing to compute replication timing profiles should pass the predicted S-phase cells into the [`compute_pseudobulk_rt_profiles()` function](https://github.com/shahcompbio/scdna_replication_tools/blob/main/scdna_replication_tools/compute_pseudobulk_rt_profiles.py).
 
 
 ## Feedback
