@@ -40,7 +40,7 @@ class pert_infer_scRT():
                  rs_col='rt_state', frac_rt_col='frac_rt', cn_prior_method='g1_composite',
                  cn_prior_weight=1e6, learning_rate=0.05, max_iter=2000, min_iter=100, rel_tol=1e-6,
                  max_iter_step1=None, min_iter_step1=None, max_iter_step3=None, min_iter_step3=None,
-                 cuda=False, seed=0, P=13, K=4, upsilon=6, run_step3=True):
+                 cuda=False, seed=0, P=13, K=4, J=5, upsilon=6, run_step3=True):
         '''
         initialise the pert_infer_scRT object
         :param cn_s: long-form dataframe containing copy number and read count information from S-phase cells. (pandas.DataFrame)
@@ -72,6 +72,7 @@ class pert_infer_scRT():
         :param P: number of integer copy number states to include in the model, values range from 0 to P-1. (int)
         :param L: number of libraries. (int)
         :param K: maximum polynomial degree allowed for the GC bias curve. (int)
+        :param J: number of G1-phase cells to use for each S-phase cell when building the cn prior concentration matrix. (int)
         :param upsilon: value that alpha and beta terms should sum to when creating a beta distribution prior for tau. (int)
         :param run_step3: Should the pretrained S-phase model be run on low variance cells to look for misclassifications. (bool)
         '''
@@ -123,6 +124,7 @@ class pert_infer_scRT():
         self.P = P
         self.L = None
         self.K = K
+        self.J = J
 
         self.upsilon = upsilon
         self.run_step3 = run_step3
@@ -294,13 +296,18 @@ class pert_infer_scRT():
         return etas
 
 
-    def build_composite_cn_prior(self, cn, clone_cn_profiles, weight=1e5, J=5):
+    def build_composite_cn_prior(self, cn, clone_cn_profiles, weight=1e5):
         """ 
         Build a cn prior concentration matrix that uses both the consensus G1 clone profile and the closest G1-phase cell profiles.
         J represents the number of matching G1-phase cells to use for each S-phase cell.
         """
-
+        J = self.J
         temp_cn_g1 = self.cn_g1.copy()
+
+        # reduce J if it is larger than the number of G1 cells in the smallest clone
+        smallest_clone_size = temp_cn_g1[[self.cell_col, self.clone_col]].drop_duplicates().groupby(self.clone_col).size().min()
+        if smallest_clone_size < J:
+            J = smallest_clone_size
 
         # remove G1 cells from certain clones that don't belong to the majority ploidy
         # i.e. remove tetraploid cells if clone is 90% diploid
