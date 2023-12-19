@@ -1,0 +1,5 @@
+https://github.com/shahcompbio/cell_cycle_classifier.git@5e08e684bc4725fa56bf68249162e8767041631d#egg=cell_cycle_classifier
+https://github.com/mondrian-scwgs/csverve.git@2d6db28dbd4f1867670a5251fd97b98212629c2e#egg=csverve
+https://github.com/shahcompbio/scgenome.git@a245b465d7a599af8005f99ba91efeba07e761f5#egg=scgenome
+https://github.com/shahcompbio/sisyphus.git@78c708b1dcf93f85e66b5faaafff581e56880c88#egg=sisyphus
+https://github.com/amcpherson/wgs_analysis.git@c73a9bd0268b5e6fb55a8c18a58ac28e5f918482#egg=wgs_analysis
