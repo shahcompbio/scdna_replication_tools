@@ -26,7 +26,8 @@ COPY . /app
 # Install dependencies
 RUN pip install --upgrade pip setuptools
 RUN pip install numpy==1.21.4 cython==0.29.22
-RUN pip install --no-cache-dir -r requirements4.txt
+# RUN pip install --no-cache-dir -r requirements4.txt
+RUN pip install scdna-replication-tools==0.0.1
 
 # Install the package in development mode
 RUN pip install .
