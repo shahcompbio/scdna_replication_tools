@@ -27,6 +27,15 @@ python setup.py develop
 
 Note that you will have to activate both the conda and venv environments in order to run this code.
 
+If you are having difficulty installing `python==3.7.4` into a new conda environment given your current version of miniconda, you can install this version of miniconda which automatically installs `python==3.7.4`.
+
+```
+wget https://repo.anaconda.com/miniconda/Miniconda3-4.7.12-Linux-x86_64.sh
+bash Miniconda3-4.7.12-Linux-x86_64.sh
+```
+
+After installing this miniconda version, you can create a new conda environment using the same the instructions above.
+
 ## Usage
 
 See the tutorials in the [notebooks directory](https://github.com/shahcompbio/scdna_replication_tools/tree/main/notebooks) for examples of how to use PERT.
