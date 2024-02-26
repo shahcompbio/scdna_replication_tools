@@ -23,7 +23,8 @@ backcall==0.1.0
 backports-abc==0.5
 backports.functools-lru-cache==1.5
 backports.shutil-get-terminal-size==1.0.0
-bamread==0.0.11
+# bamread==0.0.11
+bamread==0.0.14
 bcrypt==3.1.7
 bleach==3.3.0
 bokeh==2.3.1
@@ -106,7 +107,7 @@ msrestazure==0.6.2
 multipledispatch==0.6.0
 mypy==0.790
 mypy-extensions==0.4.3
-mysqlclient==2.1.0
+# mysqlclient==2.1.0
 natsort==8.0.0
 nbclient==0.5.3
 nbconvert==6.0.7
@@ -153,8 +154,8 @@ pynndescent==0.5.2
 pyparsing==2.4.6
 pypeliner==0.5.24
 pyranges==0.0.113
-pyranges-db==0.0.7
-pyrle==0.0.33
+# pyranges-db==0.0.7
+pyrle==0.0.34
 pyro-api==0.1.2
 pyro-ppl==1.8.2
 pyrsistent==0.17.3
