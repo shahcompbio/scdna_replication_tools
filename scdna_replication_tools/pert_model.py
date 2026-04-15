@@ -277,7 +277,7 @@ class pert_infer_scRT():
         etas = torch.ones(num_loci, num_cells, self.P)
         for i in range(num_loci):
             for n in range(num_cells):
-                state = int(cn[i, n].numpy())
+                state = int(cn[i, n].cpu().numpy())
                 etas[i, n, state] = weight
         return etas
 
@@ -348,7 +348,7 @@ class pert_infer_scRT():
             # based on the clone and cell cn profiles
             for i in range(num_loci):
                 # add weight for consensus clone profile at this position
-                temp_clone_state = int(clone_cn_profile[i].numpy())
+                temp_clone_state = int(clone_cn_profile[i].cpu().numpy())
                 temp_weight = weight * J * 2
                 etas[i, n, temp_clone_state] += temp_weight
 
@@ -442,7 +442,7 @@ class pert_infer_scRT():
         for i in range(num_cells):
             cell_profile = reads_norm_by_cn[:, i]
             
-            X = cell_profile.numpy().reshape(-1, 1)
+            X = cell_profile.cpu().numpy().reshape(-1, 1)
             y_pred2, t_guess = self.manhattan_binarization(X)
             
             t_init[i] = t_guess
@@ -477,8 +477,8 @@ class pert_infer_scRT():
         model_cn = trace_s.nodes['cn']['value']
 
         # add inferred CN and Rep states to the S-phase output df
-        model_cn_df = pd.DataFrame(model_cn.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
-        model_rep_df = pd.DataFrame(model_rep.detach().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_cn_df = pd.DataFrame(model_cn.detach().cpu().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
+        model_rep_df = pd.DataFrame(model_rep.detach().cpu().numpy(), index=cn_s_reads_df.index, columns=cn_s_reads_df.columns)
         model_cn_df = model_cn_df.melt(ignore_index=False, value_name='model_cn_state').reset_index()
         model_rep_df = model_rep_df.melt(ignore_index=False, value_name='model_rep_state').reset_index()
         cn_s_out = pd.merge(cn_s, model_cn_df)
@@ -486,15 +486,15 @@ class pert_infer_scRT():
 
         # add other inferred parameters to cn_s_out
         taus_out = pd.DataFrame(
-            tau_fit_s.detach().numpy(),
+            tau_fit_s.detach().cpu().numpy(),
             index=cn_s_reads_df.columns, 
             columns=['model_tau']).reset_index()
         Us_out = pd.DataFrame(
-            u_fit_s.detach().numpy(),
+            u_fit_s.detach().cpu().numpy(),
             index=cn_s_reads_df.columns, 
             columns=['model_u']).reset_index()
         rho_out = pd.DataFrame(
-            rho_fit_s.detach().numpy(),
+            rho_fit_s.detach().cpu().numpy(),
             index=cn_s_reads_df.index,
             columns=['model_rho']).reset_index()
         cn_s_out = pd.merge(cn_s_out, taus_out)
@@ -508,14 +508,14 @@ class pert_infer_scRT():
         supp_out_df.append(pd.DataFrame({
             'param': ['model_lambda'],
             'level': ['all'],
-            'value': [lambda_fit.detach().numpy()[0]]
+            'value': [lambda_fit.detach().cpu().numpy()[0]]
         }))
 
         # add global alpha parameter
         supp_out_df.append(pd.DataFrame({
             'param': ['model_a'],
             'level': ['all'],
-            'value': [a_fit_s.detach().numpy()[0]]
+            'value': [a_fit_s.detach().cpu().numpy()[0]]
         }))
 
         # add loss for each step in the G1/2-phase model
