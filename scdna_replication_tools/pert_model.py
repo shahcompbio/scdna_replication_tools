@@ -615,12 +615,8 @@ class pert_infer_scRT():
                 # per cell per bin late or early 
                 t_diff = tau.reshape(-1, num_cells) - rho.reshape(num_loci, -1)
 
-                # probability of having been replicated
-                phi = 1 / (1 + torch.exp(-a * t_diff))
-
-                # force phi to remain on the domain of 0.001 to 0.999
-                phi[phi<0.001] = 0.001
-                phi[phi>0.999] = 0.999
+                eps = torch.finfo(t_diff.dtype).eps
+                phi = torch.clamp(torch.sigmoid(a * t_diff), min=eps, max=1.0 - eps)
 
                 # binary replicated indicator
                 rep = pyro.sample('rep', dist.Bernoulli(phi), infer={"enumerate": "parallel"})
